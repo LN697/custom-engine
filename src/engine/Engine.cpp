@@ -34,6 +34,9 @@ Engine::~Engine() {
 }
 
 bool Engine::initialize() {
+    SDL_SetHint(SDL_HINT_VIDEODRIVER, "wayland,x11");
+    SDL_SetHint(SDL_HINT_MOUSE_RELATIVE_MODE_WARP, "0");
+
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS | SDL_INIT_TIMER) != 0) {
         std::cerr << "SDL_Init failed: " << SDL_GetError() << "\n";
         return false;
@@ -42,22 +45,41 @@ bool Engine::initialize() {
     if (!createWindow()) return false;
     if (!renderer_.initialize(width_, height_)) return false;
 
-    // Explicitly show the main window to ensure it is mapped by the OS compositor
     SDL_ShowWindow(window_);
     SDL_RaiseWindow(window_);
 
-    // FIX: Grab the window to securely confine the cursor inside the bounds
-    SDL_SetWindowGrab(window_, SDL_TRUE);
-
-    if (SDL_SetRelativeMouseMode(SDL_TRUE) != 0) {
-        std::cerr << "Warning: Relative mouse mode not supported: " << SDL_GetError() << "\n";
+    const char* driver = SDL_GetCurrentVideoDriver();
+    if (driver && std::string(driver) == "x11") {
+        SDL_SetWindowGrab(window_, SDL_TRUE);
     }
 
-    // FIX: Flush the massive initial mouse delta caused by the OS hiding and warping the cursor
-    SDL_GetRelativeMouseState(nullptr, nullptr);
+    // FIX: Removed SDL_SetRelativeMouseMode() from here. 
+    // Wayland will silently reject locks on startup without user interaction.
 
     running_ = true;
     return true;
+}
+
+void Engine::handleEvent(const SDL_Event& event) {
+    if (inputManager_.processEvent(event)) {
+        running_ = false;
+        return;
+    }
+
+    if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
+        width_ = event.window.data1;
+        height_ = event.window.data2;
+        renderer_.resize(width_, height_);
+    }
+
+    // FIX: Request the pointer lock ONLY when the user clicks inside the active window.
+    if (event.type == SDL_MOUSEBUTTONDOWN) {
+        if (SDL_GetRelativeMouseMode() == SDL_FALSE) {
+            SDL_SetRelativeMouseMode(SDL_TRUE);
+            // Flush the synthetic jump that occurs the exact moment the cursor hides
+            SDL_GetRelativeMouseState(nullptr, nullptr);
+        }
+    }
 }
 
 void Engine::run() {
@@ -137,19 +159,6 @@ bool Engine::createWindow() {
     }
 
     return true;
-}
-
-void Engine::handleEvent(const SDL_Event& event) {
-    if (inputManager_.processEvent(event)) {
-        running_ = false;
-        return;
-    }
-
-    if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
-        width_ = event.window.data1;
-        height_ = event.window.data2;
-        renderer_.resize(width_, height_);
-    }
 }
 
 void Engine::updateCamera(float deltaTime) {

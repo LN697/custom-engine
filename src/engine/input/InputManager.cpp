@@ -40,8 +40,14 @@ bool InputManager::processEvent(const SDL_Event& event) {
                 recordKey(event.key.keysym.sym, true);
                 appendHistory("Key down: " + mapKeyName(event.key.keysym.sym));
             }
+            
             if (event.key.keysym.sym == SDLK_ESCAPE) {
-                quitRequested_ = true;
+                // FIX: If the mouse is captured, free it. If it is already free, quit the engine.
+                if (SDL_GetRelativeMouseMode() == SDL_TRUE) {
+                    SDL_SetRelativeMouseMode(SDL_FALSE);
+                } else {
+                    quitRequested_ = true;
+                }
             }
             break;
 
