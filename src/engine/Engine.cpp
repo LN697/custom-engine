@@ -39,14 +39,8 @@ bool Engine::initialize() {
         return false;
     }
 
-    if (!createWindow()) {
-        return false;
-    }
-
-    if (!renderer_.initialize(width_, height_)) {
-        std::cerr << "Renderer initialization failed.\n";
-        return false;
-    }
+    if (!createWindow()) return false;
+    if (!renderer_.initialize(width_, height_)) return false;
 
     int windowX = SDL_WINDOWPOS_CENTERED;
     int windowY = SDL_WINDOWPOS_CENTERED;
@@ -69,11 +63,7 @@ bool Engine::initialize() {
         SDL_ShowWindow(debugWindow_);
     }
 
-    SDL_ShowCursor(SDL_DISABLE);
     SDL_SetRelativeMouseMode(SDL_TRUE);
-    SDL_CaptureMouse(SDL_TRUE);
-    SDL_SetWindowMouseGrab(window_, SDL_TRUE);
-    SDL_SetWindowGrab(window_, SDL_TRUE);
     SDL_RaiseWindow(window_);
 
     running_ = true;
@@ -81,11 +71,13 @@ bool Engine::initialize() {
 }
 
 void Engine::run() {
-    Uint32 lastTicks = SDL_GetTicks();
+    // FIX: High-resolution hardware timing
+    Uint64 lastTicks = SDL_GetPerformanceCounter();
+    const double frequency = static_cast<double>(SDL_GetPerformanceFrequency());
 
     while (running_) {
-        Uint32 currentTicks = SDL_GetTicks();
-        float deltaTime = (currentTicks - lastTicks) / 1000.0f;
+        Uint64 currentTicks = SDL_GetPerformanceCounter();
+        float deltaTime = static_cast<float>((currentTicks - lastTicks) / frequency);
         lastTicks = currentTicks;
 
         SDL_Event event;
@@ -102,14 +94,12 @@ void Engine::run() {
         frameTimer_ += deltaTime;
         frameCount_++;
         debugUpdateInterval_ += deltaTime;
+        
         if (debugUpdateInterval_ >= kDebugUpdateInterval) {
             updateDebugWindow(debugUpdateInterval_);
             debugUpdateInterval_ = 0.0f;
-            frameTimer_ = 0.0f;
             frameCount_ = 0;
         }
-
-        SDL_Delay(1);
     }
 }
 
@@ -183,24 +173,12 @@ void Engine::updateCamera(float deltaTime) {
     float strafe = 0.0f;
     float rise = 0.0f;
 
-    if (inputManager_.moveForward()) {
-        forward += 1.0f;
-    }
-    if (inputManager_.moveBackward()) {
-        forward -= 1.0f;
-    }
-    if (inputManager_.moveRight()) {
-        strafe += 1.0f;
-    }
-    if (inputManager_.moveLeft()) {
-        strafe -= 1.0f;
-    }
-    if (inputManager_.moveUp()) {
-        rise += 1.0f;
-    }
-    if (inputManager_.moveDown()) {
-        rise -= 1.0f;
-    }
+    if (inputManager_.moveForward())  forward += 1.0f;
+    if (inputManager_.moveBackward()) forward -= 1.0f;
+    if (inputManager_.moveRight())    strafe += 1.0f;
+    if (inputManager_.moveLeft())     strafe -= 1.0f;
+    if (inputManager_.moveUp())       rise += 1.0f;
+    if (inputManager_.moveDown())     rise -= 1.0f;
 
     cameraYaw_ += inputManager_.mouseDeltaX() * kMouseSensitivity;
     cameraPitch_ += inputManager_.mouseDeltaY() * kMouseSensitivity;
@@ -210,15 +188,18 @@ void Engine::updateCamera(float deltaTime) {
     float cosYaw = std::cos(cameraYaw_);
     float sinYaw = std::sin(cameraYaw_);
 
+    // FIX: Corrected right-handed coordinate OpenGL vector math
     float forwardX = cosPitch * sinYaw;
-    float forwardZ = cosPitch * cosYaw;
+    float forwardZ = -cosPitch * cosYaw; 
     float rightX = cosYaw;
-    float rightZ = -sinYaw;
+    float rightZ = sinYaw;
 
     float speed = kMovementSpeed * deltaTime;
-    cameraX_ += (-forwardX * forward + rightX * strafe) * speed;
+    
+    // FIX: Removed sign inversion on translation addition
+    cameraX_ += (forwardX * forward + rightX * strafe) * speed;
     cameraY_ += rise * speed;
-    cameraZ_ += (-forwardZ * forward + rightZ * strafe) * speed;
+    cameraZ_ += (forwardZ * forward + rightZ * strafe) * speed;
 }
 
 void Engine::updateDebugWindow(float deltaTime) {

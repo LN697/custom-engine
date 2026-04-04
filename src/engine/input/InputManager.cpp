@@ -23,6 +23,15 @@ bool InputManager::processEvent(const SDL_Event& event) {
             appendHistory("Quit requested");
             break;
 
+        // FIX: Prevent "Sticky Keys" on focus loss
+        case SDL_WINDOWEVENT:
+            if (event.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
+                keysDown_.clear();
+                movingForward_ = movingBackward_ = movingLeft_ = movingRight_ = movingUp_ = movingDown_ = false;
+                appendHistory("Focus lost: Keys cleared");
+            }
+            break;
+
         case SDL_KEYDOWN:
             if (!event.key.repeat) {
                 recordKey(event.key.keysym.sym, true);
