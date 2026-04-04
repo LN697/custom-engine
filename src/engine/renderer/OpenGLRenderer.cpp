@@ -31,7 +31,7 @@ void OpenGLRenderer::resize(int width, int height) {
     glLoadIdentity();
 
     const float aspect = (height_ > 0) ? static_cast<float>(width_) / static_cast<float>(height_) : 1.0f;
-    const float fovRadians = 60.0f * 3.14159265f / 180.0f;
+    const float fovRadians = 60.0f * 3.14159265358979f / 180.0f;
     const float nearPlane = 0.1f;
     const float top = tanf(fovRadians * 0.5f) * nearPlane;
     const float right = top * aspect;
@@ -46,9 +46,11 @@ void OpenGLRenderer::render(float cameraX, float cameraY, float cameraZ, float y
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
 
-    glRotatef(-pitch * 180.0f / 3.14159265f, 1.0f, 0.0f, 0.0f);
-    glRotatef(-yaw * 180.0f / 3.14159265f, 0.0f, 1.0f, 0.0f);
+    // FPS camera: apply yaw first (around world Y), then pitch in the resulting frame (around local X).
+    // This ensures pitch is always relative to camera orientation.
     glTranslatef(-cameraX, -cameraY, -cameraZ);
+    glRotatef(-yaw * 180.0f / 3.14159265358979f, 0.0f, 1.0f, 0.0f);
+    glRotatef(-pitch * 180.0f / 3.14159265358979f, 1.0f, 0.0f, 0.0f);
 
     renderScene();
 }

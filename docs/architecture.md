@@ -16,7 +16,12 @@ The custom engine is organized into modular subsystems that separate core respon
   - Handles OpenGL initialization, viewport management, and basic rendering.
 
 - `src/engine/input/InputManager.cpp`
-  - Handles SDL event processing and quit logic.
+  - Handles SDL event processing, keyboard/mouse state, and quit logic.
+  - Clears input state when the window loses focus to avoid sticky key behavior.
+
+- `src/engine/Engine.cpp`
+  - Manages engine lifecycle and window interactions.
+  - Updates debug telemetry in the window title bar every 0.25 seconds.
 
 ## Design Principles
 

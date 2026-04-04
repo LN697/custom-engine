@@ -9,15 +9,15 @@ namespace engine {
 
 static constexpr float kMovementSpeed = 4.0f;
 static constexpr float kMouseSensitivity = 0.0025f;
+static constexpr float kKeyboardLookSpeed = 1.5f; // radians per second for arrow key look input
 static constexpr float kDebugUpdateInterval = 0.25f;
-static constexpr float kDegreesPerRadian = 180.0f / 3.14159265f;
+static constexpr float kDegreesPerRadian = 180.0f / 3.14159265358979f;
 
 Engine::Engine()
     : running_(false),
       width_(1280),
       height_(720),
       window_(nullptr),
-      debugWindow_(nullptr),
       glContext_(nullptr),
       cameraX_(0.0f),
       cameraY_(1.6f),
@@ -42,36 +42,20 @@ bool Engine::initialize() {
     if (!createWindow()) return false;
     if (!renderer_.initialize(width_, height_)) return false;
 
-    int windowX = SDL_WINDOWPOS_CENTERED;
-    int windowY = SDL_WINDOWPOS_CENTERED;
-    SDL_GetWindowPosition(window_, &windowX, &windowY);
-    int debugX = windowX + width_ + 20;
-    int debugY = windowY;
-
-    debugWindow_ = SDL_CreateWindow(
-        "Debug Info",
-        debugX,
-        debugY,
-        460,
-        140,
-        SDL_WINDOW_SHOWN | SDL_WINDOW_SKIP_TASKBAR | SDL_WINDOW_ALWAYS_ON_TOP
-    );
-
-    if (!debugWindow_) {
-        std::cerr << "Warning: failed to create debug window: " << SDL_GetError() << "\n";
-    } else {
-        SDL_ShowWindow(debugWindow_);
-    }
-
-    SDL_SetRelativeMouseMode(SDL_TRUE);
+    // Explicitly show the main window to ensure it is mapped by the OS compositor
+    SDL_ShowWindow(window_);
     SDL_RaiseWindow(window_);
+
+    // Now that the ONLY window is successfully mapped and focused, capture the mouse
+    if (SDL_SetRelativeMouseMode(SDL_TRUE) != 0) {
+        std::cerr << "Warning: Relative mouse mode not supported: " << SDL_GetError() << "\n";
+    }
 
     running_ = true;
     return true;
 }
 
 void Engine::run() {
-    // FIX: High-resolution hardware timing
     Uint64 lastTicks = SDL_GetPerformanceCounter();
     const double frequency = static_cast<double>(SDL_GetPerformanceFrequency());
 
@@ -114,11 +98,6 @@ void Engine::shutdown() {
         window_ = nullptr;
     }
 
-    if (debugWindow_) {
-        SDL_DestroyWindow(debugWindow_);
-        debugWindow_ = nullptr;
-    }
-
     SDL_Quit();
 }
 
@@ -134,7 +113,7 @@ bool Engine::createWindow() {
         SDL_WINDOWPOS_CENTERED,
         width_,
         height_,
-        SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE
+        SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_SHOWN
     );
 
     if (!window_) {
@@ -180,23 +159,32 @@ void Engine::updateCamera(float deltaTime) {
     if (inputManager_.moveUp())       rise += 1.0f;
     if (inputManager_.moveDown())     rise -= 1.0f;
 
-    cameraYaw_ += inputManager_.mouseDeltaX() * kMouseSensitivity;
-    cameraPitch_ += inputManager_.mouseDeltaY() * kMouseSensitivity;
+    const bool hasArrowLook = inputManager_.lookLeft() || inputManager_.lookRight() ||
+                               inputManager_.lookUp() || inputManager_.lookDown();
+
+    if (!hasArrowLook) {
+        cameraYaw_ += inputManager_.mouseDeltaX() * kMouseSensitivity;
+        cameraPitch_ += inputManager_.mouseDeltaY() * kMouseSensitivity;
+    }
+
+    float yawInput = static_cast<float>(inputManager_.lookRight() - inputManager_.lookLeft());
+    float pitchInput = static_cast<float>(inputManager_.lookUp() - inputManager_.lookDown());
+
+    cameraYaw_ += yawInput * kKeyboardLookSpeed * deltaTime;
+    cameraPitch_ += pitchInput * kKeyboardLookSpeed * deltaTime;
     cameraPitch_ = std::fmax(std::fmin(cameraPitch_, 1.5f), -1.5f);
 
-    float cosPitch = std::cos(cameraPitch_);
     float cosYaw = std::cos(cameraYaw_);
     float sinYaw = std::sin(cameraYaw_);
 
-    // FIX: Corrected right-handed coordinate OpenGL vector math
-    float forwardX = cosPitch * sinYaw;
-    float forwardZ = -cosPitch * cosYaw; 
+    // Forward/right on the XZ plane (ignore pitch for horizontal movement)
+    float forwardX = sinYaw;
+    float forwardZ = -cosYaw;
     float rightX = cosYaw;
     float rightZ = sinYaw;
 
     float speed = kMovementSpeed * deltaTime;
     
-    // FIX: Removed sign inversion on translation addition
     cameraX_ += (forwardX * forward + rightX * strafe) * speed;
     cameraY_ += rise * speed;
     cameraZ_ += (forwardZ * forward + rightZ * strafe) * speed;
@@ -206,25 +194,21 @@ void Engine::updateDebugWindow(float deltaTime) {
     const float fps = frameCount_ > 0 ? frameCount_ / deltaTime : 0.0f;
     const char* glVersion = reinterpret_cast<const char*>(glGetString(GL_VERSION));
     const char* glRenderer = reinterpret_cast<const char*>(glGetString(GL_RENDERER));
-    const char* glVendor = reinterpret_cast<const char*>(glGetString(GL_VENDOR));
     const bool depthEnabled = glIsEnabled(GL_DEPTH_TEST) == GL_TRUE;
 
     std::ostringstream title;
-    title << "FPS=" << std::fixed << std::setprecision(1) << fps;
+    title << "Engine | FPS=" << std::fixed << std::setprecision(1) << fps;
     title << " | Pos=(" << std::setprecision(2) << cameraX_ << "," << cameraY_ << "," << cameraZ_ << ")";
     title << " | Yaw=" << std::setprecision(1) << cameraYaw_ * kDegreesPerRadian;
     title << " | Pitch=" << cameraPitch_ * kDegreesPerRadian;
-    title << " | Keys=" << inputManager_.keySummary();
-    title << " | Mouse=" << inputManager_.mouseSummary();
+    title << " | Depth=" << (depthEnabled ? "On" : "Off");
+    title << " | Uptime=" << std::fixed << std::setprecision(1) << frameTimer_ << "s";
     title << " | GL=" << (glVersion ? glVersion : "Unknown");
     title << " | GPU=" << (glRenderer ? glRenderer : "Unknown");
-    title << " | Vendor=" << (glVendor ? glVendor : "Unknown");
-    title << " | Depth=" << (depthEnabled ? "On" : "Off");
-    title << " | Pipeline=Immediate";
-    title << " | Viewport=" << width_ << "x" << height_;
-
-    if (debugWindow_) {
-        SDL_SetWindowTitle(debugWindow_, title.str().c_str());
+    
+    // Push the telemetry dynamically to the main window's title bar
+    if (window_) {
+        SDL_SetWindowTitle(window_, title.str().c_str());
     }
 }
 

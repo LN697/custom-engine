@@ -22,6 +22,11 @@ public:
     bool moveUp() const;
     bool moveDown() const;
 
+    bool lookUp() const;
+    bool lookDown() const;
+    bool lookLeft() const;
+    bool lookRight() const;
+
     int mouseDeltaX() const;
     int mouseDeltaY() const;
     std::string keySummary() const;
@@ -41,10 +46,13 @@ private:
     bool movingUp_;
     bool movingDown_;
 
+    bool lookUp_;
+    bool lookDown_;
+    bool lookLeft_;
+    bool lookRight_;
+
     int mouseDeltaX_;
     int mouseDeltaY_;
-    int mouseX_;
-    int mouseY_;
 
     std::set<SDL_Keycode> keysDown_;
     std::deque<std::string> eventLog_;

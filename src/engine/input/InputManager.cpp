@@ -10,10 +10,12 @@ InputManager::InputManager()
       movingRight_(false),
       movingUp_(false),
       movingDown_(false),
+      lookUp_(false),
+      lookDown_(false),
+      lookLeft_(false),
+      lookRight_(false),
       mouseDeltaX_(0),
-      mouseDeltaY_(0),
-      mouseX_(0),
-      mouseY_(0) {
+      mouseDeltaY_(0) {
 }
 
 bool InputManager::processEvent(const SDL_Event& event) {
@@ -28,6 +30,7 @@ bool InputManager::processEvent(const SDL_Event& event) {
             if (event.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
                 keysDown_.clear();
                 movingForward_ = movingBackward_ = movingLeft_ = movingRight_ = movingUp_ = movingDown_ = false;
+                lookUp_ = lookDown_ = lookLeft_ = lookRight_ = false;
                 appendHistory("Focus lost: Keys cleared");
             }
             break;
@@ -50,8 +53,6 @@ bool InputManager::processEvent(const SDL_Event& event) {
         case SDL_MOUSEMOTION:
             mouseDeltaX_ += event.motion.xrel;
             mouseDeltaY_ += event.motion.yrel;
-            mouseX_ = event.motion.x;
-            mouseY_ = event.motion.y;
             appendHistory("Mouse motion: dx=" + std::to_string(event.motion.xrel) + " dy=" + std::to_string(event.motion.yrel));
             break;
 
@@ -103,6 +104,22 @@ bool InputManager::moveDown() const {
     return movingDown_;
 }
 
+bool InputManager::lookUp() const {
+    return lookUp_;
+}
+
+bool InputManager::lookDown() const {
+    return lookDown_;
+}
+
+bool InputManager::lookLeft() const {
+    return lookLeft_;
+}
+
+bool InputManager::lookRight() const {
+    return lookRight_;
+}
+
 int InputManager::mouseDeltaX() const {
     return mouseDeltaX_;
 }
@@ -150,20 +167,28 @@ void InputManager::recordKey(SDL_Keycode key, bool pressed) {
 
     switch (key) {
         case SDLK_w:
-        case SDLK_UP:
             movingForward_ = pressed;
             break;
         case SDLK_s:
-        case SDLK_DOWN:
             movingBackward_ = pressed;
             break;
         case SDLK_a:
-        case SDLK_LEFT:
             movingLeft_ = pressed;
             break;
         case SDLK_d:
-        case SDLK_RIGHT:
             movingRight_ = pressed;
+            break;
+        case SDLK_LEFT:
+            lookLeft_ = pressed;
+            break;
+        case SDLK_RIGHT:
+            lookRight_ = pressed;
+            break;
+        case SDLK_UP:
+            lookUp_ = pressed;
+            break;
+        case SDLK_DOWN:
+            lookDown_ = pressed;
             break;
         case SDLK_SPACE:
         case SDLK_e:

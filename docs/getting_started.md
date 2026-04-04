@@ -39,7 +39,31 @@ From the project root:
 ./custom-engine
 ```
 
-The sample application opens an SDL2 window with a simple OpenGL triangle and responds to input events.
+The sample application opens an SDL2 window with a simple OpenGL scene.
+
+### Controls
+
+- `W`: move forward
+- `S`: move backward
+- `A`: move left
+- `D`: move right
+- `Space` / `E`: move up
+- `Left Ctrl` / `Right Ctrl` / `Q`: move down
+- `Left Arrow` / `Right Arrow`: rotate yaw left/right
+- `Up Arrow` / `Down Arrow`: rotate pitch up/down
+- Mouse movement: look around (arrow keys override mouse while pressed)
+- `Escape`: quit
+
+### Debug telemetry
+
+The application updates the SDL window title every quarter second with:
+
+- FPS
+- Camera position
+- Camera yaw/pitch
+- OpenGL version and renderer
+- Depth test state
+- Runtime uptime
 
 ## Clean
 

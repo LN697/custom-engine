@@ -26,7 +26,6 @@ private:
     int height_;
 
     SDL_Window* window_;
-    SDL_Window* debugWindow_;
     SDL_GLContext glContext_;
 
     InputManager inputManager_;
