@@ -46,11 +46,12 @@ void OpenGLRenderer::render(float cameraX, float cameraY, float cameraZ, float y
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
 
-    // FPS camera: apply yaw first (around world Y), then pitch in the resulting frame (around local X).
-    // This ensures pitch is always relative to camera orientation.
+    // FIX: The signs on pitch and yaw must be positive.
+    // A positive yaw means turning right (clockwise), which mathematically maps to moving along +X.
+    // To visually align with this, the view matrix needs a positive rotation to bring +X into the -Z view frustum.
+    glRotatef(pitch * 180.0f / 3.14159265358979f, 1.0f, 0.0f, 0.0f);
+    glRotatef(yaw * 180.0f / 3.14159265358979f, 0.0f, 1.0f, 0.0f);
     glTranslatef(-cameraX, -cameraY, -cameraZ);
-    glRotatef(-yaw * 180.0f / 3.14159265358979f, 0.0f, 1.0f, 0.0f);
-    glRotatef(-pitch * 180.0f / 3.14159265358979f, 1.0f, 0.0f, 0.0f);
 
     renderScene();
 }

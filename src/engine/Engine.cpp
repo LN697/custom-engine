@@ -46,10 +46,15 @@ bool Engine::initialize() {
     SDL_ShowWindow(window_);
     SDL_RaiseWindow(window_);
 
-    // Now that the ONLY window is successfully mapped and focused, capture the mouse
+    // FIX: Grab the window to securely confine the cursor inside the bounds
+    SDL_SetWindowGrab(window_, SDL_TRUE);
+
     if (SDL_SetRelativeMouseMode(SDL_TRUE) != 0) {
         std::cerr << "Warning: Relative mouse mode not supported: " << SDL_GetError() << "\n";
     }
+
+    // FIX: Flush the massive initial mouse delta caused by the OS hiding and warping the cursor
+    SDL_GetRelativeMouseState(nullptr, nullptr);
 
     running_ = true;
     return true;
@@ -148,6 +153,7 @@ void Engine::handleEvent(const SDL_Event& event) {
 }
 
 void Engine::updateCamera(float deltaTime) {
+    // 1. Gather digital input states
     float forward = 0.0f;
     float strafe = 0.0f;
     float rise = 0.0f;
@@ -159,34 +165,50 @@ void Engine::updateCamera(float deltaTime) {
     if (inputManager_.moveUp())       rise += 1.0f;
     if (inputManager_.moveDown())     rise -= 1.0f;
 
-    const bool hasArrowLook = inputManager_.lookLeft() || inputManager_.lookRight() ||
-                               inputManager_.lookUp() || inputManager_.lookDown();
-
-    if (!hasArrowLook) {
-        cameraYaw_ += inputManager_.mouseDeltaX() * kMouseSensitivity;
-        cameraPitch_ += inputManager_.mouseDeltaY() * kMouseSensitivity;
+    float length = std::sqrt(forward * forward + strafe * strafe + rise * rise);
+    if (length > 0.0f) {
+        forward /= length;
+        strafe /= length;
+        rise /= length;
     }
 
+    // FIX: Query SDL directly for relative mouse state to bypass event-loop jitter and synthetic OS warps
+    int mouseDX, mouseDY;
+    SDL_GetRelativeMouseState(&mouseDX, &mouseDY);
+
+    cameraYaw_ += mouseDX * kMouseSensitivity;
+    cameraPitch_ += mouseDY * kMouseSensitivity;
+
     float yawInput = static_cast<float>(inputManager_.lookRight() - inputManager_.lookLeft());
-    float pitchInput = static_cast<float>(inputManager_.lookUp() - inputManager_.lookDown());
+    float pitchInput = static_cast<float>(inputManager_.lookDown() - inputManager_.lookUp());
 
     cameraYaw_ += yawInput * kKeyboardLookSpeed * deltaTime;
     cameraPitch_ += pitchInput * kKeyboardLookSpeed * deltaTime;
+    
+    // Clamp pitch to prevent the camera from flipping upside down
     cameraPitch_ = std::fmax(std::fmin(cameraPitch_, 1.5f), -1.5f);
 
+    // FIX: 3D Spectator Movement Math
     float cosYaw = std::cos(cameraYaw_);
     float sinYaw = std::sin(cameraYaw_);
+    float cosPitch = std::cos(cameraPitch_);
+    float sinPitch = std::sin(cameraPitch_);
 
-    // Forward/right on the XZ plane (ignore pitch for horizontal movement)
-    float forwardX = sinYaw;
-    float forwardZ = -cosYaw;
+    // True 3D forward vector (incorporates pitch for vertical Y-axis traversal)
+    float forwardX = sinYaw * cosPitch;
+    float forwardY = -sinPitch; 
+    float forwardZ = -cosYaw * cosPitch;
+
+    // Right vector remains strictly horizontal so A/D strafing doesn't change your altitude
     float rightX = cosYaw;
+    float rightY = 0.0f;
     float rightZ = sinYaw;
 
     float speed = kMovementSpeed * deltaTime;
     
+    // 5. Apply world-space translations
     cameraX_ += (forwardX * forward + rightX * strafe) * speed;
-    cameraY_ += rise * speed;
+    cameraY_ += (forwardY * forward + rightY * strafe + rise) * speed;
     cameraZ_ += (forwardZ * forward + rightZ * strafe) * speed;
 }
 
