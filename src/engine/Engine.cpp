@@ -1,9 +1,11 @@
 #include "engine/Engine.h"
+#include "engine/debug/ImGuiDebugger.h"
+#include "engine/renderer/PostProcessor.h"
+#include <backends/imgui_impl_sdl2.h>
+#include <SDL2/SDL.h>
 #include <GL/gl.h>
 #include <cmath>
-#include <iomanip>
 #include <iostream>
-#include <sstream>
 
 namespace engine {
 
@@ -11,22 +13,25 @@ static constexpr float kMovementSpeed = 4.0f;
 static constexpr float kMouseSensitivity = 0.0025f;
 static constexpr float kKeyboardLookSpeed = 1.5f; // radians per second for arrow key look input
 static constexpr float kDebugUpdateInterval = 0.25f;
-static constexpr float kDegreesPerRadian = 180.0f / 3.14159265358979f;
 
 Engine::Engine()
-    : running_(false),
-      width_(1280),
-      height_(720),
-      window_(nullptr),
-      glContext_(nullptr),
-      cameraX_(0.0f),
-      cameraY_(1.6f),
-      cameraZ_(4.0f),
-      cameraYaw_(0.0f),
-      cameraPitch_(0.0f),
-      frameTimer_(0.0f),
-      frameCount_(0),
-      debugUpdateInterval_(0.0f) {
+        : running_(false),
+            width_(1280),
+            height_(720),
+            window_(nullptr),
+            glContext_(nullptr),
+            cameraX_(0.0f),
+            cameraY_(1.6f),
+            cameraZ_(4.0f),
+            cameraYaw_(0.0f),
+            cameraPitch_(0.0f),
+            cameraVelX_(0.0f),
+            cameraVelY_(0.0f),
+            cameraVelZ_(0.0f),
+            movementSmoothing_(12.0f),
+            frameTimer_(0.0f),
+            frameCount_(0),
+            debugUpdateInterval_(0.0f) {
 }
 
 Engine::~Engine() {
@@ -45,6 +50,17 @@ bool Engine::initialize() {
     if (!createWindow()) return false;
     if (!renderer_.initialize(width_, height_)) return false;
 
+    // Initialize post-processor (optional)
+    postProcessor_.initialize(width_, height_);
+
+    // Initialize ImGui debugger
+    if (!debugger_.initialize(window_, glContext_)) {
+        std::cerr << "ImGui debugger initialization failed\n";
+        return false;
+    }
+    debugger_.setPostProcessor(&postProcessor_);
+    debugger_.attachMovementSmoothing(&movementSmoothing_);
+
     SDL_ShowWindow(window_);
     SDL_RaiseWindow(window_);
 
@@ -61,6 +77,9 @@ bool Engine::initialize() {
 }
 
 void Engine::handleEvent(const SDL_Event& event) {
+    // Pass events to ImGui for handling
+    ImGui_ImplSDL2_ProcessEvent(&event);
+    
     if (inputManager_.processEvent(event)) {
         running_ = false;
         return;
@@ -96,25 +115,45 @@ void Engine::run() {
             handleEvent(event);
         }
 
+        // Begin ImGui frame
+        debugger_.beginFrame();
+
         updateCamera(deltaTime);
         renderer_.render(cameraX_, cameraY_, cameraZ_, cameraYaw_, cameraPitch_);
 
-        SDL_GL_SwapWindow(window_);
-        inputManager_.resetFrameState();
+        // Capture the rendered scene for post-processing (before any UI is drawn)
+        if (postProcessor_.isEnabled()) postProcessor_.capture();
 
+        // Accumulate timing and count frames for the debug interval
         frameTimer_ += deltaTime;
         frameCount_++;
         debugUpdateInterval_ += deltaTime;
-        
+
+        // Update debug statistics at a lower frequency to avoid jitter
         if (debugUpdateInterval_ >= kDebugUpdateInterval) {
-            updateDebugWindow(debugUpdateInterval_);
+            updateDebugUI(debugUpdateInterval_);
             debugUpdateInterval_ = 0.0f;
             frameCount_ = 0;
         }
+
+        // Draw post-processed scene (if enabled) before UI so UI overlays on top
+        if (postProcessor_.isEnabled()) postProcessor_.render();
+
+        // Always draw the UI (it uses the latest cached stats)
+        debugger_.drawUI();
+
+        // End ImGui frame and render
+        debugger_.endFrame();
+        debugger_.render();
+
+        SDL_GL_SwapWindow(window_);
+        inputManager_.resetFrameState();
     }
 }
 
 void Engine::shutdown() {
+    debugger_.shutdown();
+    
     if (glContext_) {
         SDL_GL_DeleteContext(glContext_);
         glContext_ = nullptr;
@@ -157,6 +196,9 @@ bool Engine::createWindow() {
     if (SDL_GL_SetSwapInterval(1) != 0) {
         std::cerr << "Warning: Unable to enable VSync: " << SDL_GetError() << "\n";
     }
+
+    // Note: GLEW initialization skipped to avoid header compatibility issues.
+    // Standard GL functions are available via the OpenGL system headers.
 
     return true;
 }
@@ -213,34 +255,36 @@ void Engine::updateCamera(float deltaTime) {
     float rightY = 0.0f;
     float rightZ = sinYaw;
 
-    float speed = kMovementSpeed * deltaTime;
-    
-    // 5. Apply world-space translations
-    cameraX_ += (forwardX * forward + rightX * strafe) * speed;
-    cameraY_ += (forwardY * forward + rightY * strafe + rise) * speed;
-    cameraZ_ += (forwardZ * forward + rightZ * strafe) * speed;
+    // Desired world-space velocity (units per second)
+    float desiredVelX = (forwardX * forward + rightX * strafe) * kMovementSpeed;
+    float desiredVelY = (forwardY * forward + rightY * strafe + rise) * kMovementSpeed;
+    float desiredVelZ = (forwardZ * forward + rightZ * strafe) * kMovementSpeed;
+
+    // Smooth velocity using exponential approach for consistent feel across frame rates
+    float k = movementSmoothing_;
+    float t = 1.0f - std::exp(-k * deltaTime);
+    cameraVelX_ += (desiredVelX - cameraVelX_) * t;
+    cameraVelY_ += (desiredVelY - cameraVelY_) * t;
+    cameraVelZ_ += (desiredVelZ - cameraVelZ_) * t;
+
+    // Integrate position
+    cameraX_ += cameraVelX_ * deltaTime;
+    cameraY_ += cameraVelY_ * deltaTime;
+    cameraZ_ += cameraVelZ_ * deltaTime;
 }
 
-void Engine::updateDebugWindow(float deltaTime) {
-    const float fps = frameCount_ > 0 ? frameCount_ / deltaTime : 0.0f;
+void Engine::updateDebugUI(float elapsedInterval) {
+    const float fps = (elapsedInterval > 0.0f && frameCount_ > 0) ? frameCount_ / elapsedInterval : 0.0f;
     const char* glVersion = reinterpret_cast<const char*>(glGetString(GL_VERSION));
     const char* glRenderer = reinterpret_cast<const char*>(glGetString(GL_RENDERER));
     const bool depthEnabled = glIsEnabled(GL_DEPTH_TEST) == GL_TRUE;
 
-    std::ostringstream title;
-    title << "Engine | FPS=" << std::fixed << std::setprecision(1) << fps;
-    title << " | Pos=(" << std::setprecision(2) << cameraX_ << "," << cameraY_ << "," << cameraZ_ << ")";
-    title << " | Yaw=" << std::setprecision(1) << cameraYaw_ * kDegreesPerRadian;
-    title << " | Pitch=" << cameraPitch_ * kDegreesPerRadian;
-    title << " | Depth=" << (depthEnabled ? "On" : "Off");
-    title << " | Uptime=" << std::fixed << std::setprecision(1) << frameTimer_ << "s";
-    title << " | GL=" << (glVersion ? glVersion : "Unknown");
-    title << " | GPU=" << (glRenderer ? glRenderer : "Unknown");
-    
-    // Push the telemetry dynamically to the main window's title bar
-    if (window_) {
-        SDL_SetWindowTitle(window_, title.str().c_str());
-    }
+    // Update debugger with frame data (cached until next interval)
+    debugger_.setCameraPosition(cameraX_, cameraY_, cameraZ_);
+    debugger_.setCameraRotation(cameraYaw_, cameraPitch_);
+    debugger_.setFrameStats(fps, frameCount_, frameTimer_);
+    debugger_.setGLInfo(glVersion, glRenderer);
+    debugger_.setDepthTestEnabled(depthEnabled);
 }
 
 } // namespace engine
