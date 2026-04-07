@@ -3,6 +3,8 @@
 #include <SDL2/SDL.h>
 #include <string>
 #include <vector>
+#include <utility>
+#include <functional>
 
 namespace engine {
 namespace renderer { class PostProcessor; }
@@ -22,6 +24,13 @@ public:
     void endFrame();
     void render();
     void drawUI();  // Draw all debug UI panels
+
+    // Simple in-game console: submit text commands which are forwarded
+    // to a callback supplied by the engine.
+    void setCommandCallback(std::function<void(const std::string&)> cb) { commandCallback_ = cb; }
+    void addConsoleLog(const std::string& msg);
+    // Show per-stage timing data (milliseconds)
+    void setStageTimings(const std::vector<std::pair<std::string, float>>& timings) { stageTimings_ = timings; }
 
     // Update camera debug info
     void setCameraPosition(float x, float y, float z);
@@ -50,6 +59,7 @@ private:
     void drawPerformancePanel();
     void drawCameraPanel();
     void drawRenderingPanel();
+    void drawConsolePanel();
 
     // State
     bool initialized_;
@@ -73,6 +83,15 @@ private:
     bool showCameraPanel_;
     bool showRenderingPanel_;
     bool showDemoWindow_;
+    bool showConsolePanel_;
+
+    // Stage timings collected from the engine loop (label, ms)
+    std::vector<std::pair<std::string, float>> stageTimings_;
+
+    // Console state
+    char consoleInput_[256];
+    std::vector<std::string> consoleItems_;
+    std::function<void(const std::string&)> commandCallback_;
     
     // Post-processor integration
     engine::renderer::PostProcessor* postProcessor_;

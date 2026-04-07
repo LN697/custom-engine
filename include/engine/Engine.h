@@ -4,6 +4,9 @@
 #include "engine/renderer/OpenGLRenderer.h"
 #include "engine/renderer/PostProcessor.h"
 #include "engine/debug/ImGuiDebugger.h"
+#include "engine/camera/Camera.h"
+#include "engine/scene/SceneManager.h"
+#include "engine/Time.h"
 #include <SDL2/SDL.h>
 
 namespace engine {
@@ -21,7 +24,7 @@ private:
     bool createWindow();
     void handleEvent(const SDL_Event& event);
     void updateCamera(float deltaTime);
-    void updateDebugUI(float deltaTime);
+    void updateDebugUI(float fps, int frameCount, float uptime);
 
     bool running_;
     int width_;
@@ -35,21 +38,10 @@ private:
     renderer::PostProcessor postProcessor_;
     debug::ImGuiDebugger debugger_;
 
-    float cameraX_;
-    float cameraY_;
-    float cameraZ_;
-    float cameraYaw_;
-    float cameraPitch_;
+    engine::camera::Camera camera_;
+    scene::SceneManager sceneManager_;
+    engine::Time time_;
 
-    // Movement smoothing velocity
-    float cameraVelX_;
-    float cameraVelY_;
-    float cameraVelZ_;
-    // Movement smoothing factor (units: responsiveness)
-    float movementSmoothing_;
-
-    float frameTimer_;
-    int frameCount_;
     float debugUpdateInterval_;
 };
 

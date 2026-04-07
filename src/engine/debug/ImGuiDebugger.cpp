@@ -42,23 +42,24 @@ static void ClampCurrentWindowToDisplay()
 }
 
 ImGuiDebugger::ImGuiDebugger()
-    : initialized_(false),
-      window_(nullptr),
-      cameraX_(0.0f),
-      cameraY_(0.0f),
-      cameraZ_(0.0f),
-      cameraYaw_(0.0f),
-      cameraPitch_(0.0f),
-      fps_(0.0f),
-      frameCount_(0),
-      uptime_(0.0f),
-      glVersion_("Unknown"),
-      glRenderer_("Unknown"),
-      depthTestEnabled_(false),
-            showPerformancePanel_(true),
-            showCameraPanel_(true),
-            showRenderingPanel_(true),
-            showDemoWindow_(false) {
+        : initialized_(false),
+            window_(nullptr),
+            cameraX_(0.0f),
+            cameraY_(0.0f),
+            cameraZ_(0.0f),
+            cameraYaw_(0.0f),
+            cameraPitch_(0.0f),
+            fps_(0.0f),
+            frameCount_(0),
+            uptime_(0.0f),
+            glVersion_("Unknown"),
+            glRenderer_("Unknown"),
+            depthTestEnabled_(false),
+                        showPerformancePanel_(true),
+                        showCameraPanel_(true),
+                        showRenderingPanel_(true),
+                                                showDemoWindow_(false),
+                                                showConsolePanel_(false) {
         postProcessor_ = nullptr;
         // Prefill shader path textboxes with sensible defaults
         std::strncpy(vertShaderPath_, "shaders/post_default.vert", sizeof(vertShaderPath_) - 1);
@@ -79,6 +80,9 @@ ImGuiDebugger::ImGuiDebugger()
         clearColor_[0] = 0.05f; clearColor_[1] = 0.1f; clearColor_[2] = 0.18f;
 
         movementSmoothingPtr_ = nullptr;
+        consoleInput_[0] = '\0';
+        consoleItems_.clear();
+        stageTimings_.clear();
 }
 
 ImGuiDebugger::~ImGuiDebugger() {
@@ -172,6 +176,9 @@ void ImGuiDebugger::drawUI() {
     ImGui::SetNextWindowPos(ImVec2(10, 320), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSize(ImVec2(710, 350), ImGuiCond_FirstUseEver);
     drawRenderingPanel();
+
+    // Console disabled by default (hidden). To re-enable call setShow... or
+    // change `showConsolePanel_` initialization.
 }
 
 void ImGuiDebugger::setCameraPosition(float x, float y, float z) {
@@ -248,6 +255,15 @@ void ImGuiDebugger::drawPerformancePanel() {
         ImGui::Separator();
         ImGui::Text("GPU: %s", glRenderer_.c_str());
         ImGui::Text("OpenGL: %s", glVersion_.c_str());
+
+        // Per-stage timings (ms)
+        if (!stageTimings_.empty()) {
+            ImGui::Separator();
+            ImGui::Text("Stage timings (ms):");
+            for (const auto &p : stageTimings_) {
+                ImGui::BulletText("%s: %.3f ms", p.first.c_str(), p.second);
+            }
+        }
 
         ImGui::Separator();
         ImGui::SliderFloat("FPS Smooth Alpha", &fpsSmoothingAlpha_, 0.0f, 1.0f);
@@ -344,6 +360,49 @@ void ImGuiDebugger::drawRenderingPanel() {
         }
     }
     ImGui::End();
+}
+
+void ImGuiDebugger::drawConsolePanel() {
+    if (ImGui::Begin("Console", &showConsolePanel_)) {
+        ClampCurrentWindowToDisplay();
+
+        // Log area
+        ImGui::BeginChild("ConsoleScroll", ImVec2(0, -ImGui::GetFrameHeightWithSpacing()), false, ImGuiWindowFlags_HorizontalScrollbar);
+        for (const auto& line : consoleItems_) {
+            ImGui::TextWrapped("%s", line.c_str());
+        }
+        if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY()) {
+            ImGui::SetScrollHereY(1.0f);
+        }
+        ImGui::EndChild();
+
+        // Input
+        ImGuiInputTextFlags flags = ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_EscapeClearsAll;
+        if (ImGui::InputText("Input", consoleInput_, IM_ARRAYSIZE(consoleInput_), flags)) {
+            std::string cmd(consoleInput_);
+            if (!cmd.empty()) {
+                addConsoleLog(std::string("> ") + cmd);
+                if (commandCallback_) commandCallback_(cmd);
+            }
+            consoleInput_[0] = '\0';
+        }
+
+        ImGui::SameLine();
+        if (ImGui::Button("Submit")) {
+            std::string cmd(consoleInput_);
+            if (!cmd.empty()) {
+                addConsoleLog(std::string("> ") + cmd);
+                if (commandCallback_) commandCallback_(cmd);
+            }
+            consoleInput_[0] = '\0';
+        }
+    }
+    ImGui::End();
+}
+
+void ImGuiDebugger::addConsoleLog(const std::string& msg) {
+    consoleItems_.push_back(msg);
+    if (consoleItems_.size() > 256) consoleItems_.erase(consoleItems_.begin());
 }
 
 } // namespace debug
