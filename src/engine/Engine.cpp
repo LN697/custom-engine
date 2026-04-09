@@ -1,8 +1,8 @@
-#include "engine/Engine.h"
-#include "engine/debug/ImGuiDebugger.h"
-#include "engine/renderer/PostProcessor.h"
-#include "engine/scene/DefaultScene.h"
-#include <backends/imgui_impl_sdl2.h>
+#include "engine/engine.h"
+#include "engine/debug_imgui.h"
+#include "engine/post_processor.h"
+#include "engine/scene/default_scene.h"
+#include <imgui.h>
 #include <SDL2/SDL.h>
 #include <GL/gl.h>
 #include <cmath>
@@ -14,21 +14,21 @@
 
 namespace engine {
 
-static constexpr float kDebugUpdateInterval = 0.25f;
+static constexpr float k_debug_update_interval = 0.25f;
 
 Engine::Engine()
-        : running_(false),
-          width_(1280),
-          height_(720),
+        : is_running_(false),
+          window_width_(1280),
+          window_height_(720),
           window_(nullptr),
-          glContext_(nullptr),
+          gl_context_(nullptr),
           renderer_(),
-          postProcessor_(),
+          post_processor_(),
           debugger_(),
           camera_(),
-          sceneManager_(),
+          scene_manager_(),
           time_(),
-          debugUpdateInterval_(0.0f) {
+          debug_update_interval_(0.0f) {
 }
 
 Engine::~Engine() {
@@ -45,25 +45,27 @@ bool Engine::initialize() {
         return false;
     }
 
-    if (!createWindow()) return false;
-    if (!renderer_.initialize(width_, height_)) return false;
+    if (!create_window()) return false;
+    if (!renderer_.initialize(window_width_, window_height_)) return false;
 
     // Initialize post-processor (optional)
-    postProcessor_.initialize(width_, height_);
+    post_processor_.initialize(window_width_, window_height_);
+    // Load post-processor shader files
+    post_processor_.load_shader_files("shaders/post_default.vert", "shaders/post_default.frag");
 
     // Initialize ImGui debugger
-    if (!debugger_.initialize(window_, glContext_)) {
+    if (!debugger_.initialize(window_, gl_context_)) {
         std::cerr << "ImGui debugger initialization failed\n";
         return false;
     }
-    debugger_.setPostProcessor(&postProcessor_);
-    debugger_.attachMovementSmoothing(camera_.smoothingPtr());
+    debugger_.set_post_processor(&post_processor_);
+    debugger_.attach_movement_smoothing(camera_.smoothing_ptr());
 
     // Attach a simple command handler for the in-game console
-    debugger_.setCommandCallback([this](const std::string& cmd) {
+    debugger_.set_command_callback([this](const std::string& cmd) {
         if (cmd == "quit" || cmd == "exit") {
-            debugger_.addConsoleLog("Quitting application...");
-            running_ = false;
+            debugger_.add_console_log("Quitting application...");
+            is_running_ = false;
             return;
         }
 
@@ -71,30 +73,30 @@ bool Engine::initialize() {
             std::istringstream ss(cmd.substr(14));
             float v = 0.0f;
             if (ss >> v) {
-                camera_.setSmoothing(v);
-                debugger_.addConsoleLog("Movement smoothing set.");
+                camera_.set_smoothing(v);
+                debugger_.add_console_log("Movement smoothing set.");
             } else {
-                debugger_.addConsoleLog("Invalid value for set_smoothing");
+                debugger_.add_console_log("Invalid value for set_smoothing");
             }
             return;
         }
 
         if (cmd == "toggle_postprocess") {
-            postProcessor_.setEnabled(!postProcessor_.isEnabled());
-            debugger_.addConsoleLog(postProcessor_.isEnabled() ? "Postprocess enabled" : "Postprocess disabled");
+            post_processor_.set_enabled(!post_processor_.is_enabled());
+            debugger_.add_console_log(post_processor_.is_enabled() ? "Postprocess enabled" : "Postprocess disabled");
             return;
         }
 
         if (cmd == "help") {
-            debugger_.addConsoleLog("Commands: help, quit, set_smoothing <value>, toggle_postprocess");
+            debugger_.add_console_log("Commands: help, quit, set_smoothing <value>, toggle_postprocess");
             return;
         }
 
-        debugger_.addConsoleLog(std::string("Unknown command: ") + cmd);
+        debugger_.add_console_log(std::string("Unknown command: ") + cmd);
     });
 
     // Create and set the default scene
-    sceneManager_.setScene(std::make_unique<scene::DefaultScene>());
+    scene_manager_.set_scene(std::make_unique<scene::DefaultScene>());
 
     SDL_ShowWindow(window_);
     SDL_RaiseWindow(window_);
@@ -107,24 +109,38 @@ bool Engine::initialize() {
     // FIX: Removed SDL_SetRelativeMouseMode() from here. 
     // Wayland will silently reject locks on startup without user interaction.
 
-    running_ = true;
+    is_running_ = true;
     return true;
 }
 
-void Engine::handleEvent(const SDL_Event& event) {
-    // Pass events to ImGui for handling
-    ImGui_ImplSDL2_ProcessEvent(&event);
+void Engine::handle_event(const SDL_Event& event) {
+    // Record event for debugger event list
+    debugger_.record_event(event);
+
+    // Pass events to ImGui EXCEPT arrow keys and escape (game controls)
+    if (event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) {
+        if (event.key.keysym.sym != SDLK_UP && event.key.keysym.sym != SDLK_DOWN &&
+            event.key.keysym.sym != SDLK_LEFT && event.key.keysym.sym != SDLK_RIGHT &&
+            event.key.keysym.sym != SDLK_ESCAPE) {
+            debugger_.process_event(event);
+        }
+    } else {
+        debugger_.process_event(event);
+    }
+
+    input_manager_.handle_event(event);
     
-    if (inputManager_.processEvent(event)) {
-        running_ = false;
+    // Check for quit event
+    if (event.type == SDL_QUIT) {
+        is_running_ = false;
         return;
     }
 
     if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
-        width_ = event.window.data1;
-        height_ = event.window.data2;
-        renderer_.resize(width_, height_);
-        postProcessor_.resize(width_, height_);
+        window_width_ = event.window.data1;
+        window_height_ = event.window.data2;
+        renderer_.resize(window_width_, window_height_);
+        post_processor_.resize(window_width_, window_height_);
     }
 
     // Request the pointer lock ONLY when the user clicks inside the active window.
@@ -135,85 +151,127 @@ void Engine::handleEvent(const SDL_Event& event) {
             SDL_GetRelativeMouseState(nullptr, nullptr);
         }
     }
+
+    // Allow Escape to disable mouse capture
+    if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_ESCAPE) {
+        if (SDL_GetRelativeMouseMode() == SDL_TRUE) {
+            SDL_SetRelativeMouseMode(SDL_FALSE);
+        }
+    }
 }
 
 void Engine::run() {
-    Uint64 lastTicks = SDL_GetPerformanceCounter();
+    Uint64 last_ticks = SDL_GetPerformanceCounter();
     const double frequency = static_cast<double>(SDL_GetPerformanceFrequency());
 
-    while (running_) {
-        Uint64 currentTicks = SDL_GetPerformanceCounter();
-        float deltaTime = static_cast<float>((currentTicks - lastTicks) / frequency);
-        lastTicks = currentTicks;
+    while (is_running_) {
+        Uint64 current_ticks = SDL_GetPerformanceCounter();
+        float delta_time = static_cast<float>((current_ticks - last_ticks) / frequency);
+        last_ticks = current_ticks;
 
         // advance time
-        time_.tick(deltaTime);
-        time_.incrementFrame();
+        time_.tick(delta_time);
+        time_.increment_frame();
 
         // Stage timing: measure durations of key stages to help find bottlenecks
         Uint64 s0 = SDL_GetPerformanceCounter();
 
         SDL_Event event;
+        int event_count = 0;
         while (SDL_PollEvent(&event)) {
-            handleEvent(event);
+            handle_event(event);
+            ++event_count;
+            if (event_count > 1000) {
+                debugger_.add_console_log("Event queue flushed (exceeded 1000 events)");
+                SDL_FlushEvents(SDL_FIRSTEVENT, SDL_LASTEVENT);
+                break;
+            }
         }
         Uint64 s1 = SDL_GetPerformanceCounter();
 
-        debugger_.beginFrame();
+        // Update input keyboard state after processing events so camera sees current keys
+        input_manager_.update();
+
+        // If input manager requested quit (eg. Q pressed), stop running
+        if (input_manager_.is_quit_requested()) {
+            is_running_ = false;
+            break;
+        }
+
+        debugger_.begin_frame();
         Uint64 s2 = SDL_GetPerformanceCounter();
 
         // Update camera and scene
-        updateCamera(deltaTime);
+        update_camera(delta_time);
         Uint64 s3 = SDL_GetPerformanceCounter();
-        sceneManager_.update(deltaTime);
+        scene_manager_.update(delta_time);
         Uint64 s4 = SDL_GetPerformanceCounter();
-        sceneManager_.render(renderer_, camera_);
-        Uint64 s5 = SDL_GetPerformanceCounter();
 
-
-        // Capture the rendered scene for post-processing (before any UI is drawn)
-        Uint64 s6 = s5;
-        if (postProcessor_.isEnabled()) {
-            postProcessor_.capture();
+        // If post-processing is enabled, render the scene into the FBO
+        Uint64 s5 = s4;
+        Uint64 s6 = s4;
+        if (post_processor_.is_enabled()) {
+            post_processor_.begin_capture();
+            scene_manager_.render(renderer_, camera_);
+            post_processor_.end_capture();
+            s5 = SDL_GetPerformanceCounter();
             s6 = SDL_GetPerformanceCounter();
+        } else {
+            scene_manager_.render(renderer_, camera_);
+            s5 = SDL_GetPerformanceCounter();
+            s6 = s5;
         }
 
         // Accumulate debug interval
-        debugUpdateInterval_ += deltaTime;
+        debug_update_interval_ += delta_time;
 
         // Update debug statistics at a lower frequency to avoid jitter
-        if (debugUpdateInterval_ >= kDebugUpdateInterval) {
-            int frames = time_.getFrameCountAndReset();
-            float fps = (debugUpdateInterval_ > 0.0f && frames > 0) ? static_cast<float>(frames) / debugUpdateInterval_ : 0.0f;
-            updateDebugUI(fps, frames, time_.uptime());
-            debugUpdateInterval_ = 0.0f;
+        if (debug_update_interval_ >= k_debug_update_interval) {
+            int frames = time_.get_frame_count_and_reset();
+            float fps = (debug_update_interval_ > 0.0f && frames > 0) ? static_cast<float>(frames) / debug_update_interval_ : 0.0f;
+            update_debug_ui(fps, frames, time_.uptime());
+            debug_update_interval_ = 0.0f;
         }
 
         // Draw post-processed scene (if enabled) before UI so UI overlays on top
         Uint64 s7 = s6;
-        if (postProcessor_.isEnabled()) {
-            postProcessor_.render();
+        if (post_processor_.is_enabled()) {
+            post_processor_.check_for_shader_reload();
+            post_processor_.render();
             s7 = SDL_GetPerformanceCounter();
         }
 
         // Collect stage timings (in milliseconds)
-        std::vector<std::pair<std::string, float>> stageTimings;
-        stageTimings.emplace_back("events", static_cast<float>((s1 - s0) / frequency * 1000.0));
-        stageTimings.emplace_back("imgui_begin", static_cast<float>((s2 - s1) / frequency * 1000.0));
-        stageTimings.emplace_back("camera_update", static_cast<float>((s3 - s2) / frequency * 1000.0));
-        stageTimings.emplace_back("scene_update", static_cast<float>((s4 - s3) / frequency * 1000.0));
-        stageTimings.emplace_back("scene_render", static_cast<float>((s5 - s4) / frequency * 1000.0));
-        stageTimings.emplace_back("post_capture", static_cast<float>((s6 - s5) / frequency * 1000.0));
-        stageTimings.emplace_back("post_render", static_cast<float>((s7 - s6) / frequency * 1000.0));
+        std::vector<std::pair<std::string, float>> stage_timings;
+        stage_timings.emplace_back("events", static_cast<float>((s1 - s0) / frequency * 1000.0));
+        stage_timings.emplace_back("imgui_begin", static_cast<float>((s2 - s1) / frequency * 1000.0));
+        stage_timings.emplace_back("camera_update", static_cast<float>((s3 - s2) / frequency * 1000.0));
+        stage_timings.emplace_back("scene_update", static_cast<float>((s4 - s3) / frequency * 1000.0));
+        stage_timings.emplace_back("scene_render", static_cast<float>((s5 - s4) / frequency * 1000.0));
+        stage_timings.emplace_back("post_capture", static_cast<float>((s6 - s5) / frequency * 1000.0));
+        stage_timings.emplace_back("post_render", static_cast<float>((s7 - s6) / frequency * 1000.0));
 
         // Push timings to the debugger for display
-        debugger_.setStageTimings(stageTimings);
+        debugger_.set_stage_timings(stage_timings);
+
+        // Disable ImGui mouse capture if mouse is in game area (center region)
+        ImGuiIO& io = ImGui::GetIO();
+        int mouse_x = io.MousePos.x;
+        int mouse_y = io.MousePos.y;
+        // If mouse is in center game area (not in left/right UI panels), don't capture
+        if (mouse_x > 310 && mouse_y > 10) {
+            io.ConfigFlags &= ~ImGuiConfigFlags_NavEnableKeyboard;
+            io.WantCaptureMouse = false;
+            io.WantCaptureKeyboard = false;
+        } else {
+            io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+        }
 
         // Always draw the UI (it uses the latest cached stats)
-        debugger_.drawUI();
+        debugger_.draw_ui();
 
         // End ImGui frame and render
-        debugger_.endFrame();
+        debugger_.end_frame();
         Uint64 s8 = SDL_GetPerformanceCounter();
         debugger_.render();
         Uint64 s9 = SDL_GetPerformanceCounter();
@@ -222,24 +280,24 @@ void Engine::run() {
         Uint64 s10 = SDL_GetPerformanceCounter();
 
         // Add swap/render timings to the debugger (append)
-        std::vector<std::pair<std::string, float>> moreTimes;
-        moreTimes.emplace_back("imgui_render", static_cast<float>((s9 - s8) / frequency * 1000.0));
-        moreTimes.emplace_back("swap", static_cast<float>((s10 - s9) / frequency * 1000.0));
+        std::vector<std::pair<std::string, float>> more_times;
+        more_times.emplace_back("imgui_render", static_cast<float>((s9 - s8) / frequency * 1000.0));
+        more_times.emplace_back("swap", static_cast<float>((s10 - s9) / frequency * 1000.0));
         // merge
-        auto current = std::move(stageTimings);
-        current.insert(current.end(), moreTimes.begin(), moreTimes.end());
-        debugger_.setStageTimings(current);
+        auto current = std::move(stage_timings);
+        current.insert(current.end(), more_times.begin(), more_times.end());
+        debugger_.set_stage_timings(current);
 
-        inputManager_.resetFrameState();
+        // input_manager_.update() already called earlier after event polling
     }
 }
 
 void Engine::shutdown() {
     debugger_.shutdown();
     
-    if (glContext_) {
-        SDL_GL_DeleteContext(glContext_);
-        glContext_ = nullptr;
+    if (gl_context_) {
+        SDL_GL_DeleteContext(gl_context_);
+        gl_context_ = nullptr;
     }
 
     if (window_) {
@@ -250,9 +308,11 @@ void Engine::shutdown() {
     SDL_Quit();
 }
 
-bool Engine::createWindow() {
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
+bool Engine::create_window() {
+    // Request OpenGL 3.3 compatibility profile to support both modern and legacy rendering
+    // (Legacy immediate mode until VAO/VBO rendering is fully implemented)
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_COMPATIBILITY);
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
 
@@ -260,8 +320,8 @@ bool Engine::createWindow() {
         "Custom Engine",
         SDL_WINDOWPOS_CENTERED,
         SDL_WINDOWPOS_CENTERED,
-        width_,
-        height_,
+        window_width_,
+        window_height_,
         SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_SHOWN
     );
 
@@ -270,8 +330,8 @@ bool Engine::createWindow() {
         return false;
     }
 
-    glContext_ = SDL_GL_CreateContext(window_);
-    if (!glContext_) {
+    gl_context_ = SDL_GL_CreateContext(window_);
+    if (!gl_context_) {
         std::cerr << "SDL_GL_CreateContext failed: " << SDL_GetError() << "\n";
         return false;
     }
@@ -283,21 +343,21 @@ bool Engine::createWindow() {
     return true;
 }
 
-void Engine::updateCamera(float deltaTime) {
-    camera_.update(deltaTime, inputManager_);
+void Engine::update_camera(float delta_time) {
+    camera_.update(delta_time, input_manager_);
 }
 
-void Engine::updateDebugUI(float fps, int frameCount, float uptime) {
-    const char* glVersion = reinterpret_cast<const char*>(glGetString(GL_VERSION));
-    const char* glRenderer = reinterpret_cast<const char*>(glGetString(GL_RENDERER));
-    const bool depthEnabled = glIsEnabled(GL_DEPTH_TEST) == GL_TRUE;
+void Engine::update_debug_ui(float fps, int frame_count, float uptime) {
+    const char* gl_version = reinterpret_cast<const char*>(glGetString(GL_VERSION));
+    const char* gl_renderer = reinterpret_cast<const char*>(glGetString(GL_RENDERER));
+    const bool depth_enabled = glIsEnabled(GL_DEPTH_TEST) == GL_TRUE;
 
     // Update debugger with frame data (cached until next interval)
-    debugger_.setCameraPosition(camera_.x(), camera_.y(), camera_.z());
-    debugger_.setCameraRotation(camera_.yaw(), camera_.pitch());
-    debugger_.setFrameStats(fps, frameCount, uptime);
-    debugger_.setGLInfo(glVersion, glRenderer);
-    debugger_.setDepthTestEnabled(depthEnabled);
+    debugger_.set_camera_position(camera_.x(), camera_.y(), camera_.z());
+    debugger_.set_camera_rotation(camera_.yaw(), camera_.pitch());
+    debugger_.set_frame_stats(fps, frame_count, uptime);
+    debugger_.set_gl_info(gl_version, gl_renderer);
+    debugger_.set_depth_test_enabled(depth_enabled);
 }
 
 } // namespace engine

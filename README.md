@@ -32,7 +32,7 @@ make
 - `Left Arrow` / `Right Arrow`: rotate yaw left/right
 - `Up Arrow` / `Down Arrow`: rotate pitch up/down
 - Mouse movement: look around (arrow keys override mouse while pressed)
-- `Escape`: quit
+- `Q`: quit
 
 The window title bar shows runtime telemetry including FPS, camera position, orientation, depth test state, and OpenGL information.
 

@@ -19,7 +19,21 @@ sudo apt update
 sudo apt install -y build-essential pkg-config libsdl2-dev libgl1-mesa-dev
 ```
 
-If your distribution uses another package manager, install the equivalent SDL2 and OpenGL development packages.
+### Optional Dependencies
+
+To enable PNG/JPG texture loading via SDL2_image:
+```bash
+sudo apt install -y libsdl2-image-dev
+```
+
+To enable OBJ model loading:
+```bash
+sudo apt install -y libtinyobjloader-dev
+```
+
+If your distribution uses another package manager, install the equivalent SDL2, OpenGL, SDL2_image, and tinyobjloader development packages.
+
+After installing optional libraries, uncomment the corresponding includes in `src/engine/AssetManager.cpp` to enable those features.
 
 ## Build
 

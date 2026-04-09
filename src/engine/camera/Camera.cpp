@@ -1,81 +1,87 @@
-#include "engine/camera/Camera.h"
+#include "engine/camera.h"
 #include <SDL2/SDL.h>
 #include <algorithm>
 #include <cmath>
 
 namespace engine {
-namespace camera {
 
 Camera::Camera()
-    : x_(0.0f), y_(1.6f), z_(4.0f), yaw_(0.0f), pitch_(0.0f),
-      velX_(0.0f), velY_(0.0f), velZ_(0.0f), movementSmoothing_(12.0f) {}
+    : position_(0.0f, 1.6f, 4.0f), orientation_(1.0f, 0.0f, 0.0f, 0.0f), velocity_(0.0f),
+      yaw_(0.0f), pitch_(0.0f), move_smoothing_(12.0f) {}
 
-void Camera::update(float deltaTime, const engine::InputManager& input) {
+void Camera::update(float delta_time, const InputManager& input) {
     // Movement inputs
-    float forward = 0.0f;
-    float strafe = 0.0f;
-    float rise = 0.0f;
+    float forward_input = 0.0f;
+    float strafe_input = 0.0f;
+    float rise_input = 0.0f;
 
-    if (input.moveForward())  forward += 1.0f;
-    if (input.moveBackward()) forward -= 1.0f;
-    if (input.moveRight())    strafe += 1.0f;
-    if (input.moveLeft())     strafe -= 1.0f;
-    if (input.moveUp())       rise += 1.0f;
-    if (input.moveDown())     rise -= 1.0f;
+    if (input.move_forward())  forward_input += 1.0f;
+    if (input.move_backward()) forward_input -= 1.0f;
+    if (input.move_right())    strafe_input += 1.0f;
+    if (input.move_left())     strafe_input -= 1.0f;
+    if (input.move_up())       rise_input += 1.0f;
+    if (input.move_down())     rise_input -= 1.0f;
 
-    float length = std::sqrt(forward * forward + strafe * strafe + rise * rise);
-    if (length > 0.0f) {
-        forward /= length;
-        strafe /= length;
-        rise /= length;
+    float len = std::sqrt(forward_input * forward_input + strafe_input * strafe_input + rise_input * rise_input);
+    if (len > 0.0f) {
+        forward_input /= len;
+        strafe_input /= len;
+        rise_input /= len;
     }
 
     // Mouse look (use SDL relative state for robust behavior)
-    int mouseDX = 0, mouseDY = 0;
-    SDL_GetRelativeMouseState(&mouseDX, &mouseDY);
+    int mouse_dx = 0, mouse_dy = 0;
+    SDL_GetRelativeMouseState(&mouse_dx, &mouse_dy);
 
-    yaw_ += mouseDX * kMouseSensitivity;
-    pitch_ += mouseDY * kMouseSensitivity;
+    // Mouse look (SDL yrel is positive when moving down). Use additive mapping
+    // so moving the mouse up (negative yrel) reduces pitch and looks up.
+    yaw_ += mouse_dx * k_mouse_sensitivity;
+    pitch_ += mouse_dy * k_mouse_sensitivity;
 
-    float yawInput = static_cast<float>(input.lookRight() - input.lookLeft());
-    float pitchInput = static_cast<float>(input.lookDown() - input.lookUp());
+    float yaw_input = static_cast<float>(input.look_right() - input.look_left());
+    float pitch_input = static_cast<float>(input.look_down() - input.look_up());
 
-    yaw_ += yawInput * kKeyboardLookSpeed * deltaTime;
-    pitch_ += pitchInput * kKeyboardLookSpeed * deltaTime;
+    (void)yaw_input; (void)pitch_input;
+
+    // Keyboard look: arrow keys should match mouse conventions (Up -> look up)
+    yaw_ += yaw_input * k_keyboard_look_speed * delta_time;
+    pitch_ += pitch_input * k_keyboard_look_speed * delta_time;
 
     // Clamp pitch
     pitch_ = std::fmax(std::fmin(pitch_, 1.5f), -1.5f);
 
-    // Compute direction vectors
-    float cosYaw = std::cos(yaw_);
-    float sinYaw = std::sin(yaw_);
-    float cosPitch = std::cos(pitch_);
-    float sinPitch = std::sin(pitch_);
+    // Compute direction vectors directly from yaw/pitch (trigonometric form)
+    float cos_yaw = std::cos(yaw_);
+    float sin_yaw = std::sin(yaw_);
+    float cos_pitch = std::cos(pitch_);
+    float sin_pitch = std::sin(pitch_);
 
-    float forwardX = sinYaw * cosPitch;
-    float forwardY = -sinPitch;
-    float forwardZ = -cosYaw * cosPitch;
+    glm::vec3 forward = glm::vec3(sin_yaw * cos_pitch, -sin_pitch, -cos_yaw * cos_pitch);
+    glm::vec3 right = glm::vec3(cos_yaw, 0.0f, sin_yaw);
+    glm::vec3 up = glm::normalize(glm::cross(right, forward));
 
-    float rightX = cosYaw;
-    float rightY = 0.0f;
-    float rightZ = sinYaw;
-
-    float desiredVelX = (forwardX * forward + rightX * strafe) * kMovementSpeed;
-    float desiredVelY = (forwardY * forward + rightY * strafe + rise) * kMovementSpeed;
-    float desiredVelZ = (forwardZ * forward + rightZ * strafe) * kMovementSpeed;
+    glm::vec3 desired_vel = (forward * forward_input + right * strafe_input + up * rise_input) * k_movement_speed;
 
     // Exponential smoothing of velocity
-    float k = movementSmoothing_;
-    float t = 1.0f - std::exp(-k * deltaTime);
-    velX_ += (desiredVelX - velX_) * t;
-    velY_ += (desiredVelY - velY_) * t;
-    velZ_ += (desiredVelZ - velZ_) * t;
+    float k = move_smoothing_;
+    float t = 1.0f - std::exp(-k * delta_time);
+    velocity_ += (desired_vel - velocity_) * t;
 
     // Integrate
-    x_ += velX_ * deltaTime;
-    y_ += velY_ * deltaTime;
-    z_ += velZ_ * deltaTime;
+    position_ += velocity_ * delta_time;
 }
 
-} // namespace camera
+glm::mat4 Camera::get_view_matrix() const {
+    // Compute forward/up directly from yaw/pitch (same as in update())
+    float cos_yaw = std::cos(yaw_);
+    float sin_yaw = std::sin(yaw_);
+    float cos_pitch = std::cos(pitch_);
+    float sin_pitch = std::sin(pitch_);
+
+    glm::vec3 forward = glm::vec3(sin_yaw * cos_pitch, -sin_pitch, -cos_yaw * cos_pitch);
+    glm::vec3 right = glm::vec3(cos_yaw, 0.0f, sin_yaw);
+    glm::vec3 up = glm::normalize(glm::cross(right, forward));
+    return glm::lookAt(position_, position_ + forward, up);
+}
+
 } // namespace engine

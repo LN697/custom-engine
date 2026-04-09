@@ -1,4 +1,6 @@
-#include "engine/renderer/OpenGLRenderer.h"
+#include "engine/renderer.h"
+#include "engine/camera.h"
+#include <glm/gtc/type_ptr.hpp>
 #include <GL/gl.h>
 #include <cmath>
 #include <iostream>
@@ -31,32 +33,29 @@ void OpenGLRenderer::resize(int width, int height) {
     glLoadIdentity();
 
     const float aspect = (height_ > 0) ? static_cast<float>(width_) / static_cast<float>(height_) : 1.0f;
-    const float fovRadians = 60.0f * 3.14159265358979f / 180.0f;
-    const float nearPlane = 0.1f;
-    const float top = tanf(fovRadians * 0.5f) * nearPlane;
+    const float fov_radians = 60.0f * 3.14159265358979f / 180.0f;
+    const float near_plane = 0.1f;
+    const float top = tanf(fov_radians * 0.5f) * near_plane;
     const float right = top * aspect;
-    glFrustum(-right, right, -top, top, nearPlane, 100.0f);
+    glFrustum(-right, right, -top, top, near_plane, 100.0f);
 
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
 }
 
-void OpenGLRenderer::render(float cameraX, float cameraY, float cameraZ, float yaw, float pitch) {
+void OpenGLRenderer::render(const Camera& camera) {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
 
-    // FIX: The signs on pitch and yaw must be positive.
-    // A positive yaw means turning right (clockwise), which mathematically maps to moving along +X.
-    // To visually align with this, the view matrix needs a positive rotation to bring +X into the -Z view frustum.
-    glRotatef(pitch * 180.0f / 3.14159265358979f, 1.0f, 0.0f, 0.0f);
-    glRotatef(yaw * 180.0f / 3.14159265358979f, 0.0f, 1.0f, 0.0f);
-    glTranslatef(-cameraX, -cameraY, -cameraZ);
+    // Use the camera's view matrix (computed with GLM) and load it into the GL matrix stack
+    glm::mat4 view = camera.get_view_matrix();
+    glLoadMatrixf(glm::value_ptr(view));
 
-    renderScene();
+    render_scene();
 }
 
-void OpenGLRenderer::renderScene() {
+void OpenGLRenderer::render_scene() {
     glBegin(GL_LINES);
         glColor3f(0.4f, 0.4f, 0.4f);
         for (int i = -10; i <= 10; ++i) {

@@ -1,4 +1,4 @@
-#include "engine/renderer/PostProcessor.h"
+#include "engine/post_processor.h"
 #include <GL/gl.h>
 #include <SDL2/SDL.h>
 #include <fstream>
@@ -12,7 +12,6 @@
 #define GL_FRAGMENT_SHADER 0x8B30
 
 namespace engine {
-namespace renderer {
 
 // GL function pointers loaded at runtime
 typedef GLuint (APIENTRYP PFNGLCREATESHADERPROC)(GLenum);
@@ -47,9 +46,31 @@ static PFNGLDELETEPROGRAMPROC glDeleteProgram_ptr = nullptr;
 static PFNGLUSEPROGRAMPROC glUseProgram_ptr = nullptr;
 static PFNGLGETUNIFORMLOCATIONPROC glGetUniformLocation_ptr = nullptr;
 static PFNGLUNIFORM1IPROC glUniform1i_ptr = nullptr;
+// FBO/renderbuffer function pointers (optional)
+typedef void (APIENTRYP PFNGLGENFRAMEBUFFERSPROC)(GLsizei, GLuint*);
+typedef void (APIENTRYP PFNGLBINDFRAMEBUFFERPROC)(GLenum, GLuint);
+typedef void (APIENTRYP PFNGLFRAMEBUFFERTEXTURE2DPROC)(GLenum, GLenum, GLenum, GLuint, GLint);
+typedef void (APIENTRYP PFNGLDELETEFRAMEBUFFERSPROC)(GLsizei, const GLuint*);
+typedef void (APIENTRYP PFNGLGENRENDERBUFFERSPROC)(GLsizei, GLuint*);
+typedef void (APIENTRYP PFNGLBINDRENDERBUFFERPROC)(GLenum, GLuint);
+typedef void (APIENTRYP PFNGLRENDERBUFFERSTORAGEPROC)(GLenum, GLenum, GLsizei, GLsizei);
+typedef void (APIENTRYP PFNGLFRAMEBUFFERRENDERBUFFERPROC)(GLenum, GLenum, GLenum, GLuint);
+typedef GLenum (APIENTRYP PFNGLCHECKFRAMEBUFFERSTATUSPROC)(GLenum);
+typedef void (APIENTRYP PFNGLDELETERENDERBUFFERSPROC)(GLsizei, const GLuint*);
+
+static PFNGLGENFRAMEBUFFERSPROC glGenFramebuffers_ptr = nullptr;
+static PFNGLBINDFRAMEBUFFERPROC glBindFramebuffer_ptr = nullptr;
+static PFNGLFRAMEBUFFERTEXTURE2DPROC glFramebufferTexture2D_ptr = nullptr;
+static PFNGLDELETEFRAMEBUFFERSPROC glDeleteFramebuffers_ptr = nullptr;
+static PFNGLGENRENDERBUFFERSPROC glGenRenderbuffers_ptr = nullptr;
+static PFNGLBINDRENDERBUFFERPROC glBindRenderbuffer_ptr = nullptr;
+static PFNGLRENDERBUFFERSTORAGEPROC glRenderbufferStorage_ptr = nullptr;
+static PFNGLFRAMEBUFFERRENDERBUFFERPROC glFramebufferRenderbuffer_ptr = nullptr;
+static PFNGLCHECKFRAMEBUFFERSTATUSPROC glCheckFramebufferStatus_ptr = nullptr;
+static PFNGLDELETERENDERBUFFERSPROC glDeleteRenderbuffers_ptr = nullptr;
 
 // Initialize function pointers
-static bool initGLFunctions() {
+static bool init_gl_functions() {
     static bool initialized = false;
     if (initialized) return true;
     
@@ -68,6 +89,17 @@ static bool initGLFunctions() {
     glUseProgram_ptr = (PFNGLUSEPROGRAMPROC)SDL_GL_GetProcAddress("glUseProgram");
     glGetUniformLocation_ptr = (PFNGLGETUNIFORMLOCATIONPROC)SDL_GL_GetProcAddress("glGetUniformLocation");
     glUniform1i_ptr = (PFNGLUNIFORM1IPROC)SDL_GL_GetProcAddress("glUniform1i");
+    // FBO functions (may be available depending on driver)
+    glGenFramebuffers_ptr = (PFNGLGENFRAMEBUFFERSPROC)SDL_GL_GetProcAddress("glGenFramebuffers");
+    glBindFramebuffer_ptr = (PFNGLBINDFRAMEBUFFERPROC)SDL_GL_GetProcAddress("glBindFramebuffer");
+    glFramebufferTexture2D_ptr = (PFNGLFRAMEBUFFERTEXTURE2DPROC)SDL_GL_GetProcAddress("glFramebufferTexture2D");
+    glDeleteFramebuffers_ptr = (PFNGLDELETEFRAMEBUFFERSPROC)SDL_GL_GetProcAddress("glDeleteFramebuffers");
+    glGenRenderbuffers_ptr = (PFNGLGENRENDERBUFFERSPROC)SDL_GL_GetProcAddress("glGenRenderbuffers");
+    glBindRenderbuffer_ptr = (PFNGLBINDRENDERBUFFERPROC)SDL_GL_GetProcAddress("glBindRenderbuffer");
+    glRenderbufferStorage_ptr = (PFNGLRENDERBUFFERSTORAGEPROC)SDL_GL_GetProcAddress("glRenderbufferStorage");
+    glFramebufferRenderbuffer_ptr = (PFNGLFRAMEBUFFERRENDERBUFFERPROC)SDL_GL_GetProcAddress("glFramebufferRenderbuffer");
+    glCheckFramebufferStatus_ptr = (PFNGLCHECKFRAMEBUFFERSTATUSPROC)SDL_GL_GetProcAddress("glCheckFramebufferStatus");
+    glDeleteRenderbuffers_ptr = (PFNGLDELETERENDERBUFFERSPROC)SDL_GL_GetProcAddress("glDeleteRenderbuffers");
     
     initialized = true;
     return glCreateShader_ptr && glShaderSource_ptr && glCompileShader_ptr &&
@@ -77,14 +109,14 @@ static bool initGLFunctions() {
            glUseProgram_ptr && glGetUniformLocation_ptr && glUniform1i_ptr;
 }
 
-static const char* kDefaultVert =
+static const char* k_default_vert =
 "#version 120\n"
 "void main() {\n"
 "    gl_TexCoord[0] = gl_MultiTexCoord0;\n"
 "    gl_Position = ftransform();\n"
 "}\n";
 
-static const char* kDefaultFrag =
+static const char* k_default_frag =
 "#version 120\n"
 "uniform sampler2D uTexture;\n"
 "uniform int uEffect;\n"
@@ -107,7 +139,7 @@ static const char* kDefaultFrag =
 "}\n";
 
 PostProcessor::PostProcessor()
-    : texture_(0), shaderProgram_(0), width_(0), height_(0), initialized_(false), enabled_(false), effect_(Effect_None) {
+    : texture_(0), shader_program_(0), width_(0), height_(0), initialized_(false), enabled_(false), effect_(EffectNone) {
 }
 
 PostProcessor::~PostProcessor() {
@@ -115,8 +147,8 @@ PostProcessor::~PostProcessor() {
 }
 
 bool PostProcessor::initialize(int width, int height) {
-    if (!initGLFunctions()) {
-        lastLog_ = "PostProcessor: Failed to initialize GL functions";
+    if (!init_gl_functions()) {
+        last_log_ = "PostProcessor: Failed to initialize GL functions";
         return false;
     }
 
@@ -133,10 +165,37 @@ bool PostProcessor::initialize(int width, int height) {
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width_, height_, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
         glBindTexture(GL_TEXTURE_2D, 0);
 
+        // If FBO functions are available, create an FBO and attach the texture
+        if (glGenFramebuffers_ptr && glBindFramebuffer_ptr && glFramebufferTexture2D_ptr) {
+            glGenFramebuffers_ptr(1, &fbo_);
+            glBindFramebuffer_ptr(GL_FRAMEBUFFER, fbo_);
+            glFramebufferTexture2D_ptr(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture_, 0);
+
+            // Create a depth renderbuffer
+            if (glGenRenderbuffers_ptr && glBindRenderbuffer_ptr && glRenderbufferStorage_ptr && glFramebufferRenderbuffer_ptr) {
+                glGenRenderbuffers_ptr(1, &depth_rbo_);
+                glBindRenderbuffer_ptr(GL_RENDERBUFFER, depth_rbo_);
+                glRenderbufferStorage_ptr(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, width_, height_);
+                glFramebufferRenderbuffer_ptr(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, depth_rbo_);
+                glBindRenderbuffer_ptr(GL_RENDERBUFFER, 0);
+            }
+
+            // Check FBO completeness (best-effort)
+            GLenum status = GL_FRAMEBUFFER_COMPLETE;
+            if (glCheckFramebufferStatus_ptr) status = glCheckFramebufferStatus_ptr(GL_FRAMEBUFFER);
+            if (status != GL_FRAMEBUFFER_COMPLETE) {
+                std::cerr << "PostProcessor: FBO incomplete (status=" << status << ")\n";
+                // cleanup FBO if incomplete
+                if (glDeleteFramebuffers_ptr) glDeleteFramebuffers_ptr(1, &fbo_);
+                fbo_ = 0;
+            }
+            glBindFramebuffer_ptr(GL_FRAMEBUFFER, 0);
+        }
+
         // Compile default pass-through shader so rendering can work out of the box
         std::string log;
-        if (!compileShader(kDefaultVert, kDefaultFrag, log)) {
-            lastLog_ = "Default shader compile failed:\n" + log;
+        if (!compile_shader(k_default_vert, k_default_frag, log)) {
+            last_log_ = "Default shader compile failed:\n" + log;
             // Not fatal — we still allow the engine to run without shader
         }
 
@@ -157,18 +216,28 @@ void PostProcessor::resize(int width, int height) {
 }
 
 void PostProcessor::shutdown() {
-    if (shaderProgram_ != 0) {
-        if (glDeleteProgram_ptr) glDeleteProgram_ptr(shaderProgram_);
-        shaderProgram_ = 0;
+    if (shader_program_ != 0) {
+        if (glDeleteProgram_ptr) glDeleteProgram_ptr(shader_program_);
+        shader_program_ = 0;
     }
     if (texture_ != 0) {
         glDeleteTextures(1, &texture_);
         texture_ = 0;
     }
+    if (depth_rbo_ != 0 && glDeleteRenderbuffers_ptr) {
+        GLuint tmp = depth_rbo_;
+        glDeleteRenderbuffers_ptr(1, &tmp);
+        depth_rbo_ = 0;
+    }
+    if (fbo_ != 0 && glDeleteFramebuffers_ptr) {
+        GLuint tmp = fbo_;
+        glDeleteFramebuffers_ptr(1, &tmp);
+        fbo_ = 0;
+    }
     initialized_ = false;
 }
 
-std::string PostProcessor::loadFile(const std::string& path) {
+std::string PostProcessor::load_file(const std::string& path) {
     std::ifstream in(path.c_str(), std::ios::in | std::ios::binary);
     if (!in) return std::string();
     std::ostringstream contents;
@@ -176,10 +245,10 @@ std::string PostProcessor::loadFile(const std::string& path) {
     return contents.str();
 }
 
-GLuint PostProcessor::compileSingleShader(GLenum type, const char* src, std::string& outLog) {
+GLuint PostProcessor::compile_single_shader(GLenum type, const char* src, std::string& out_log) {
     if (!glCreateShader_ptr || !glShaderSource_ptr || !glCompileShader_ptr ||
         !glGetShaderiv_ptr || !glGetShaderInfoLog_ptr || !glDeleteShader_ptr) {
-        outLog = "GL function pointers not initialized";
+        out_log = "GL function pointers not initialized";
         return 0;
     }
 
@@ -189,13 +258,13 @@ GLuint PostProcessor::compileSingleShader(GLenum type, const char* src, std::str
 
     GLint compiled = 0;
     glGetShaderiv_ptr(shader, GL_COMPILE_STATUS, &compiled);
-    GLint infoLen = 0;
-    glGetShaderiv_ptr(shader, GL_INFO_LOG_LENGTH, &infoLen);
-    if (infoLen > 1) {
+    GLint info_len = 0;
+    glGetShaderiv_ptr(shader, GL_INFO_LOG_LENGTH, &info_len);
+    if (info_len > 1) {
         std::string info;
-        info.resize(infoLen);
-        glGetShaderInfoLog_ptr(shader, infoLen, nullptr, &info[0]);
-        outLog += info;
+        info.resize(info_len);
+        glGetShaderInfoLog_ptr(shader, info_len, nullptr, &info[0]);
+        out_log += info;
     }
 
     if (!compiled) {
@@ -205,22 +274,22 @@ GLuint PostProcessor::compileSingleShader(GLenum type, const char* src, std::str
     return shader;
 }
 
-bool PostProcessor::compileShader(const char* vertSrc, const char* fragSrc, std::string& outLog) {
-    if (!initGLFunctions()) {
-        outLog = "Failed to initialize GL functions";
+bool PostProcessor::compile_shader(const char* vert_src, const char* frag_src, std::string& out_log) {
+    if (!init_gl_functions()) {
+        out_log = "Failed to initialize GL functions";
         return false;
     }
 
-    GLuint vert = compileSingleShader(GL_VERTEX_SHADER, vertSrc, outLog);
+    GLuint vert = compile_single_shader(GL_VERTEX_SHADER, vert_src, out_log);
     if (!vert) {
-        outLog = "Vertex shader compile failed:\n" + outLog;
+        out_log = "Vertex shader compile failed:\n" + out_log;
         return false;
     }
 
-    GLuint frag = compileSingleShader(GL_FRAGMENT_SHADER, fragSrc, outLog);
+    GLuint frag = compile_single_shader(GL_FRAGMENT_SHADER, frag_src, out_log);
     if (!frag) {
         glDeleteShader_ptr(vert);
-        outLog = "Fragment shader compile failed:\n" + outLog;
+        out_log = "Fragment shader compile failed:\n" + out_log;
         return false;
     }
 
@@ -228,7 +297,7 @@ bool PostProcessor::compileShader(const char* vertSrc, const char* fragSrc, std:
     if (!program) {
         glDeleteShader_ptr(vert);
         glDeleteShader_ptr(frag);
-        outLog = "Failed to create shader program";
+        out_log = "Failed to create shader program";
         return false;
     }
 
@@ -238,13 +307,13 @@ bool PostProcessor::compileShader(const char* vertSrc, const char* fragSrc, std:
 
     GLint linked = 0;
     glGetProgramiv_ptr(program, GL_LINK_STATUS, &linked);
-    GLint infoLen = 0;
-    glGetProgramiv_ptr(program, GL_INFO_LOG_LENGTH, &infoLen);
-    if (infoLen > 1) {
+    GLint info_len = 0;
+    glGetProgramiv_ptr(program, GL_INFO_LOG_LENGTH, &info_len);
+    if (info_len > 1) {
         std::string info;
-        info.resize(infoLen);
-        glGetProgramInfoLog_ptr(program, infoLen, nullptr, &info[0]);
-        outLog += info;
+        info.resize(info_len);
+        glGetProgramInfoLog_ptr(program, info_len, nullptr, &info[0]);
+        out_log += info;
     }
 
     if (!linked) {
@@ -255,10 +324,10 @@ bool PostProcessor::compileShader(const char* vertSrc, const char* fragSrc, std:
     }
 
     // Delete old program if any
-    if (shaderProgram_ != 0) {
-        glDeleteProgram_ptr(shaderProgram_);
+    if (shader_program_ != 0) {
+        glDeleteProgram_ptr(shader_program_);
     }
-    shaderProgram_ = program;
+    shader_program_ = program;
 
     glDeleteShader_ptr(vert);
     glDeleteShader_ptr(frag);
@@ -266,46 +335,72 @@ bool PostProcessor::compileShader(const char* vertSrc, const char* fragSrc, std:
     return true;
 }
 
-bool PostProcessor::loadShaderFiles(const std::string& vertPath, const std::string& fragPath) {
-    std::string vertSrc = loadFile(vertPath);
-    std::string fragSrc = loadFile(fragPath);
+bool PostProcessor::load_shader_files(const std::string& vert_path, const std::string& frag_path) {
+    std::string vert_src = load_file(vert_path);
+    std::string frag_src = load_file(frag_path);
 
-    if (vertSrc.empty()) {
-        lastLog_ = "Failed to load vertex shader file: " + vertPath;
+    if (vert_src.empty()) {
+        last_log_ = "Failed to load vertex shader file: " + vert_path;
         return false;
     }
-    if (fragSrc.empty()) {
-        lastLog_ = "Failed to load fragment shader file: " + fragPath;
+    if (frag_src.empty()) {
+        last_log_ = "Failed to load fragment shader file: " + frag_path;
         return false;
     }
 
     std::string log;
-    bool result = compileShader(vertSrc.c_str(), fragSrc.c_str(), log);
-    lastLog_ = log;
+    bool result = compile_shader(vert_src.c_str(), frag_src.c_str(), log);
+    last_log_ = log;
+
+    if (result) {
+        // If compilation succeeded, remember paths for hot-reload
+        set_watched_shader_files(vert_path, frag_path);
+    }
+
     return result;
 }
 
-void PostProcessor::capture() {
-    if (!initialized_ || !enabled_) return;
+void PostProcessor::begin_capture() {
+    if (!initialized_) return;
+    if (fbo_ != 0 && glBindFramebuffer_ptr) {
+        glBindFramebuffer_ptr(GL_FRAMEBUFFER, fbo_);
+        // Clear the attached buffers
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    }
+}
 
-    glBindTexture(GL_TEXTURE_2D, texture_);
-    glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, width_, height_);
-    glBindTexture(GL_TEXTURE_2D, 0);
+void PostProcessor::end_capture() {
+    if (!initialized_) return;
+    if (fbo_ != 0 && glBindFramebuffer_ptr) {
+        glBindFramebuffer_ptr(GL_FRAMEBUFFER, 0);
+    }
+}
+
+void PostProcessor::set_watched_shader_files(const std::string& vert_path, const std::string& frag_path) {
+    watched_vert_ = vert_path;
+    watched_frag_ = frag_path;
+}
+
+void PostProcessor::check_for_shader_reload() {
+    if (!initialized_ || !shader_program_) return;
+    
+    // Simplified hot-reload check without filesystem::last_write_time
+    // Users can manually reload by calling load_shader_files again
 }
 
 void PostProcessor::render() {
-    if (!initialized_ || !enabled_ || !shaderProgram_) return;
+    if (!initialized_ || !enabled_ || !shader_program_) return;
 
-    glUseProgram_ptr(shaderProgram_);
+    glUseProgram_ptr(shader_program_);
 
-    GLint texLoc = glGetUniformLocation_ptr(shaderProgram_, "uTexture");
-    if (texLoc != -1) {
-        glUniform1i_ptr(texLoc, 0);
+    GLint tex_loc = glGetUniformLocation_ptr(shader_program_, "uTexture");
+    if (tex_loc != -1) {
+        glUniform1i_ptr(tex_loc, 0);
     }
 
-    GLint effectLoc = glGetUniformLocation_ptr(shaderProgram_, "uEffect");
-    if (effectLoc != -1) {
-        glUniform1i_ptr(effectLoc, effect_);
+    GLint effect_loc = glGetUniformLocation_ptr(shader_program_, "uEffect");
+    if (effect_loc != -1) {
+        glUniform1i_ptr(effect_loc, effect_);
     }
 
     glActiveTexture(GL_TEXTURE0);
@@ -336,5 +431,4 @@ void PostProcessor::render() {
     glUseProgram_ptr(0);
 }
 
-}  // namespace renderer
 }  // namespace engine

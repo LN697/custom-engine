@@ -1,0 +1,119 @@
+#include "engine/asset_manager.h"
+#include <SDL2/SDL.h>
+#include <GL/gl.h>
+#include <iostream>
+#include <vector>
+
+// Optional: include SDL2_image for PNG/JPG support
+// #include <SDL2/SDL_image.h>
+
+// Optional: include tinyobjloader for OBJ model loading
+// #define TINYOBJLOADER_IMPLEMENTATION
+// #include "tinyobjloader/tiny_obj_loader.h"
+
+namespace engine {
+
+AssetManager::AssetManager() {}
+
+AssetManager::~AssetManager() {
+    clear();
+}
+
+AssetManager::Texture::~Texture() {
+    if (id != 0) {
+        GLuint tmp = id;
+        glDeleteTextures(1, &tmp);
+        id = 0;
+    }
+}
+
+std::shared_ptr<AssetManager::Texture> AssetManager::load_texture(const std::string& path) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = textureCache_.find(path);
+    if (it != textureCache_.end()) {
+        if (auto sp = it->second.lock()) return sp;
+    }
+
+    // Detect file format by extension
+    std::string ext;
+    size_t dotPos = path.rfind('.');
+    if (dotPos != std::string::npos) {
+        ext = path.substr(dotPos);
+        for (char& c : ext) c = tolower(c);
+    }
+
+    SDL_Surface* surf = nullptr;
+
+    // Try SDL_LoadBMP for BMP files
+    if (ext == ".bmp") {
+        surf = SDL_LoadBMP(path.c_str());
+    }
+    // For PNG/JPG, use SDL2_image if available
+    // #ifdef SDL_IMAGE_H
+    // else if (ext == ".png" || ext == ".jpg" || ext == ".jpeg") {
+    //     surf = IMG_Load(path.c_str());
+    // }
+    // #endif
+
+    if (!surf) {
+        std::cerr << "AssetManager: failed to load texture '" << path << "'\n";
+        return nullptr;
+    }
+
+    GLuint tex = 0;
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+
+    GLint format = GL_RGB;
+    if (surf->format->BytesPerPixel == 4) format = GL_RGBA;
+
+    glTexImage2D(GL_TEXTURE_2D, 0, format, surf->w, surf->h, 0, format, GL_UNSIGNED_BYTE, surf->pixels);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    auto texPtr = std::make_shared<Texture>();
+    texPtr->id = tex;
+    texPtr->width = surf->w;
+    texPtr->height = surf->h;
+    texPtr->channels = surf->format->BytesPerPixel;
+    texPtr->path = path;
+
+    SDL_FreeSurface(surf);
+
+    textureCache_[path] = texPtr;
+    return texPtr;
+}
+
+std::shared_ptr<AssetManager::Mesh> AssetManager::loadMesh(const std::string& path) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = meshCache_.find(path);
+    if (it != meshCache_.end()) {
+        if (auto sp = it->second.lock()) return sp;
+    }
+
+    // OBJ loading requires tinyobjloader library
+    // If not available, log a message and return nullptr
+    std::cerr << "AssetManager: Mesh loading requires tinyobjloader library.\n";
+    std::cerr << "  To enable: install libtinyobjloader-dev or vendor tinyobjloader headers.\n";
+    std::cerr << "  Then uncomment the tinyobjloader includes in AssetManager.cpp.\n";
+    return nullptr;
+
+    // Example implementation (requires tinyobjloader):
+    // auto meshPtr = std::make_shared<Mesh>();
+    // // Load OBJ file using tinyobjloader
+    // // meshPtr->vertices, meshPtr->indices populated from attrib and shapes
+    // meshCache_[path] = meshPtr;
+    // return meshPtr;
+}
+
+void AssetManager::clear() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    textureCache_.clear();
+    meshCache_.clear();
+}
+
+} // namespace engine
+
