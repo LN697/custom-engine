@@ -4,14 +4,18 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <memory>
 
 namespace engine {
+
+class ControlScheme;
 
 class Camera {
 public:
     Camera();
 
     void update(float delta_time, const InputManager& input);
+    void update(float delta_time, const ControlScheme& control_scheme);
 
     float x() const { return position_.x; }
     float y() const { return position_.y; }
@@ -39,6 +43,8 @@ private:
     static constexpr float k_movement_speed = 4.0f;
     static constexpr float k_mouse_sensitivity = 0.0025f;
     static constexpr float k_keyboard_look_speed = 1.5f;
+
+    void apply_movement(const glm::vec3& movement_direction, const glm::vec2& look_input, float delta_time);
 };
 
 } // namespace engine

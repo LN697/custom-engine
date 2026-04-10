@@ -61,23 +61,28 @@ The sample application opens an SDL2 window with a simple OpenGL scene.
 - `S`: move backward
 - `A`: move left
 - `D`: move right
-- `Space` / `E`: move up
-- `Left Ctrl` / `Right Ctrl` / `Q`: move down
-- `Left Arrow` / `Right Arrow`: rotate yaw left/right
-- `Up Arrow` / `Down Arrow`: rotate pitch up/down
-- Mouse movement: look around (arrow keys override mouse while pressed)
-- `Escape`: quit
+- `Space`: move up
+- `Left Ctrl` / `Right Ctrl`: move down
+- `Left Arrow` / `Right Arrow`: look left/right (keyboard)
+- `Up Arrow` / `Down Arrow`: look up/down (keyboard)
+- `Mouse Movement`: look around (when mouse is captured)
+- `Mouse Click`: capture/lock mouse for look control
+- `Escape`: release mouse capture
+- `Q`: quit application
 
-### Debug telemetry
+### Debug Telemetry
 
-The application updates the SDL window title every quarter second with:
-
-- FPS
-- Camera position
-- Camera yaw/pitch
-- OpenGL version and renderer
+The ImGui debug panel (always visible) displays:
+- FPS (frames per second)
+- Frame time (milliseconds)
+- Per-stage timing breakdown (event, camera, scene, render, post-process)
+- Camera position (X, Y, Z)
+- Camera rotation (yaw, pitch in degrees)
+- OpenGL version and renderer information
 - Depth test state
-- Runtime uptime
+- Runtime uptime (seconds since start)
+
+The window title bar updates approximately every quarter second with summary statistics.
 
 ## Clean
 

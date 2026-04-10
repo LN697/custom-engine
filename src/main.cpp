@@ -5,11 +5,12 @@ int main() {
     engine::Engine engine;
 
     if (!engine.initialize()) {
-        std::cerr << "Failed to initialize engine.\n";
+        std::cerr << "[MAIN] Failed to initialize engine.\n";
         return 1;
     }
 
     engine.run();
+
     engine.shutdown();
 
     return 0;

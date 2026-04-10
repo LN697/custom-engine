@@ -1,10 +1,28 @@
 #pragma once
 // Minimal subset of GLM used by the engine when system GLM isn't available.
-// This is a lightweight shim (vec3, quat, mat4, lookAt, angleAxis, normalize, value_ptr).
+// This is a lightweight shim (vec2, vec3, quat, mat4, lookAt, angleAxis, normalize, value_ptr).
 
 #include <cmath>
 
 namespace glm {
+
+struct vec2 {
+    float x, y;
+    vec2() : x(0), y(0) {}
+    vec2(float V) : x(V), y(V) {}
+    vec2(float X, float Y) : x(X), y(Y) {}
+    vec2 operator+(const vec2& o) const { return vec2(x+o.x, y+o.y); }
+    vec2 operator-(const vec2& o) const { return vec2(x-o.x, y-o.y); }
+    vec2 operator*(float s) const { return vec2(x*s, y*s); }
+    vec2 operator/(float s) const { return vec2(x/s, y/s); }
+    vec2& operator+=(const vec2& o) { x += o.x; y += o.y; return *this; }
+    vec2& operator-=(const vec2& o) { x -= o.x; y -= o.y; return *this; }
+};
+
+inline vec2 operator*(float s, const vec2& v) { return vec2(v.x*s, v.y*s); }
+inline float dot(const vec2& a, const vec2& b) { return a.x*b.x + a.y*b.y; }
+inline float length(const vec2& v) { return std::sqrt(dot(v,v)); }
+inline vec2 normalize(const vec2& v) { float l = length(v); return (l==0.0f) ? v : v / l; }
 
 struct vec3 {
     float x, y, z;

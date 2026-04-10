@@ -3,3 +3,4 @@ custom-engine
 third_party/
 .gitignore
 imgui.ini
+notes

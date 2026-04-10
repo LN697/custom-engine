@@ -33,7 +33,7 @@ void OpenGLRenderer::resize(int width, int height) {
     glLoadIdentity();
 
     const float aspect = (height_ > 0) ? static_cast<float>(width_) / static_cast<float>(height_) : 1.0f;
-    const float fov_radians = 60.0f * 3.14159265358979f / 180.0f;
+    const float fov_radians = 80.0f * 3.14159265358979f / 180.0f;
     const float near_plane = 0.1f;
     const float top = tanf(fov_radians * 0.5f) * near_plane;
     const float right = top * aspect;

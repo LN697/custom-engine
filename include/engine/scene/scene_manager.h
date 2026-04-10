@@ -13,6 +13,9 @@ public:
     void update(float dt);
     void render(OpenGLRenderer& renderer, const Camera& camera);
 
+    Scene* get_current_scene() { return current_.get(); }
+    const Scene* get_current_scene() const { return current_.get(); }
+
 private:
     std::unique_ptr<Scene> current_;
 };

@@ -1,4 +1,5 @@
 #include "engine/camera.h"
+#include "engine/input/control_scheme.h"
 #include <SDL2/SDL.h>
 #include <algorithm>
 #include <cmath>
@@ -29,6 +30,23 @@ void Camera::update(float delta_time, const InputManager& input) {
         rise_input /= len;
     }
 
+    glm::vec3 movement_direction(strafe_input, rise_input, forward_input);
+    glm::vec2 look_input(
+        static_cast<float>(input.look_right() - input.look_left()),
+        static_cast<float>(input.look_down() - input.look_up())
+    );
+
+    apply_movement(movement_direction, look_input, delta_time);
+}
+
+void Camera::update(float delta_time, const ControlScheme& control_scheme) {
+    glm::vec3 movement_direction = control_scheme.get_movement_direction();
+    glm::vec2 look_input = control_scheme.get_look_input();
+    
+    apply_movement(movement_direction, look_input, delta_time);
+}
+
+void Camera::apply_movement(const glm::vec3& movement_direction, const glm::vec2& look_input, float delta_time) {
     // Mouse look (use SDL relative state for robust behavior)
     int mouse_dx = 0, mouse_dy = 0;
     SDL_GetRelativeMouseState(&mouse_dx, &mouse_dy);
@@ -38,10 +56,9 @@ void Camera::update(float delta_time, const InputManager& input) {
     yaw_ += mouse_dx * k_mouse_sensitivity;
     pitch_ += mouse_dy * k_mouse_sensitivity;
 
-    float yaw_input = static_cast<float>(input.look_right() - input.look_left());
-    float pitch_input = static_cast<float>(input.look_down() - input.look_up());
-
-    (void)yaw_input; (void)pitch_input;
+    // Keyboard look from control scheme
+    float yaw_input = look_input.x;
+    float pitch_input = look_input.y;
 
     // Keyboard look: arrow keys should match mouse conventions (Up -> look up)
     yaw_ += yaw_input * k_keyboard_look_speed * delta_time;
@@ -60,7 +77,10 @@ void Camera::update(float delta_time, const InputManager& input) {
     glm::vec3 right = glm::vec3(cos_yaw, 0.0f, sin_yaw);
     glm::vec3 up = glm::normalize(glm::cross(right, forward));
 
-    glm::vec3 desired_vel = (forward * forward_input + right * strafe_input + up * rise_input) * k_movement_speed;
+    // Use movement direction from control scheme
+    glm::vec3 desired_vel = (forward * movement_direction.z + 
+                            right * movement_direction.x + 
+                            up * movement_direction.y) * k_movement_speed;
 
     // Exponential smoothing of velocity
     float k = move_smoothing_;

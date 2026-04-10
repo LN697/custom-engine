@@ -114,8 +114,8 @@ void ImGuiDebugger::draw_ui() {
                 ImGui::Text("  %s: %.3f", pair.first.c_str(), pair.second);
             }
         }
-        ImGui::End();
     }
+    ImGui::End();
 
     // Shaders Window
     ImGui::SetNextWindowPos(ImVec2(520, 10), ImGuiCond_FirstUseEver);
@@ -152,8 +152,8 @@ void ImGuiDebugger::draw_ui() {
         } else {
             ImGui::Text("No post processor attached.");
         }
-        ImGui::End();
     }
+    ImGui::End();
 
     // Events Window
     ImGui::SetNextWindowPos(ImVec2(10, 320), ImGuiCond_FirstUseEver);
@@ -170,8 +170,8 @@ void ImGuiDebugger::draw_ui() {
             ImGui::TextUnformatted(e.c_str());
         }
         ImGui::EndChild();
-        ImGui::End();
     }
+    ImGui::End();
 
     // Console Window (optional)
     if (console_enabled_) {
@@ -191,8 +191,8 @@ void ImGuiDebugger::draw_ui() {
                 }
                 input_buffer[0] = '\0';
             }
-            ImGui::End();
         }
+        ImGui::End();
     }
 }
 
