@@ -19,6 +19,17 @@ bool OpenGLRenderer::initialize(int width, int height) {
 
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LEQUAL);
+    
+    // Enable line and polygon antialiasing for smoother rendering
+    glEnable(GL_LINE_SMOOTH);
+    glEnable(GL_POLYGON_SMOOTH);
+    glHint(GL_LINE_SMOOTH_HINT, GL_NICEST);
+    glHint(GL_POLYGON_SMOOTH_HINT, GL_NICEST);
+    
+    // Enable blending for antialiasing to work properly
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    
     resize(width_, height_);
     glClearColor(0.05f, 0.1f, 0.18f, 1.0f);
     return true;
@@ -75,6 +86,7 @@ void OpenGLRenderer::render_scene() {
         glVertex3f(1.0f, 0.0f, -4.0f);
     glEnd();
 
+    glLineWidth(1.5f);  // Thicker lines for better visibility
     glBegin(GL_LINES);
         glColor3f(1.0f, 0.0f, 0.0f);
         glVertex3f(0.0f, 0.0f, 0.0f);

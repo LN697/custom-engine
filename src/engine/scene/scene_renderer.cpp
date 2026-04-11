@@ -68,7 +68,8 @@ void render_registry(OpenGLRenderer& renderer,
             if (glBindVertexArray_ptr && glDrawElements_ptr) {
                 glBindVertexArray_ptr(mesh->vao);
                 if (mesh->draw_mode == GL_LINES) {
-                    glLineWidth(1.0f);
+                    // Use thicker lines with antialiasing enabled
+                    glLineWidth(1.5f);
                 }
                 glDrawElements_ptr(mesh->draw_mode, mesh->index_count, GL_UNSIGNED_INT, nullptr);
             }
