@@ -1,0 +1,6 @@
+[
+  { "type": "plane", "px": 0, "py": 0, "pz": 0, "sx": 20, "sy": 1, "sz": 20, "r": 0.35, "g": 0.35, "b": 0.35 },
+  { "type": "cube", "px": 0, "py": 1, "pz": 0, "sx": 1, "sy": 2, "sz": 1, "r": 0.2, "g": 0.8, "b": 0.2 },
+  { "type": "sphere", "px": -3, "py": 1, "pz": 0, "sx": 1, "sy": 1, "sz": 1, "r": 0.9, "g": 0.6, "b": 0.1 },
+  { "type": "mesh", "path": "meshes/example.obj", "px": 3, "py": 0, "pz": 0, "sx": 1, "sy": 1, "sz": 1 }
+]

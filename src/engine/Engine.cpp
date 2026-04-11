@@ -3,6 +3,8 @@
 #include "engine/input/fps_control_scheme.h"
 #include "engine/input/doom_control_scheme.h"
 #include "engine/scene/block_world_scene.h"
+#include "engine/scene/two_d_scene.h"
+#include "engine/scene/level_demo_scene.h"
 
 namespace engine {
 
@@ -89,7 +91,7 @@ bool Engine::initialize() {
     current_control_scheme_ = std::make_shared<MinecraftControlScheme>();
 
     // Load the block-world demo scene (terrain builder + wireframe)
-    scene_manager_.set_scene(std::make_unique<scene::BlockWorldScene>());
+    scene_manager_.set_scene(std::make_unique<scene::LevelDemoScene>());
     
     // Set the control scheme on the current scene
     if (auto current_scene = scene_manager_.get_current_scene()) {
@@ -204,9 +206,9 @@ void Engine::run() {
         Uint64 s5 = s4;
         Uint64 s6 = s4;
         if (post_processor_.is_enabled()) {
-            post_processor_.begin_capture();
-            scene_manager_.render(renderer_, camera_);
-            post_processor_.end_capture();
+                post_processor_.begin_capture();
+                scene_manager_.render(renderer_, camera_);
+                post_processor_.end_capture();
             s5 = SDL_GetPerformanceCounter();
             s6 = SDL_GetPerformanceCounter();
         } else {

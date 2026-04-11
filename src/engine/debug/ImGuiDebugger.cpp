@@ -6,6 +6,7 @@
 #include <GL/gl.h>
 #include <sstream>
 
+
 namespace engine {
 
 ImGuiDebugger::ImGuiDebugger()
@@ -172,6 +173,8 @@ void ImGuiDebugger::draw_ui() {
         ImGui::EndChild();
     }
     ImGui::End();
+
+    
 
     // Console Window (optional)
     if (console_enabled_) {

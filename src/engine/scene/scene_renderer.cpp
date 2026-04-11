@@ -71,7 +71,22 @@ void render_registry(OpenGLRenderer& renderer,
                     // Use thicker lines with antialiasing enabled
                     glLineWidth(1.5f);
                 }
+
+                // Avoid z-fighting by offsetting filled polygons slightly.
+                // Enable polygon offset for triangles, draw, then disable.
+                bool usedOffset = false;
+                if (mesh->draw_mode == GL_TRIANGLES) {
+                    usedOffset = true;
+                    glEnable(GL_POLYGON_OFFSET_FILL);
+                    glPolygonOffset(1.0f, 1.0f);
+                }
+
                 glDrawElements_ptr(mesh->draw_mode, mesh->index_count, GL_UNSIGNED_INT, nullptr);
+
+                if (usedOffset) {
+                    glDisable(GL_POLYGON_OFFSET_FILL);
+                    glPolygonOffset(0.0f, 0.0f);
+                }
             }
         }
     );

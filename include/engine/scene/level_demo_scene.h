@@ -1,7 +1,6 @@
 #pragma once
 
 #include "engine/scene/scene.h"
-#include <time.h>
 #include <memory>
 
 namespace engine {
@@ -10,10 +9,10 @@ namespace ecs { class Registry; }
 namespace graphics { class ShaderProgram; }
 namespace scene {
 
-class BlockWorldScene : public Scene {
+class LevelDemoScene : public Scene {
 public:
-    BlockWorldScene();
-    ~BlockWorldScene() override = default;
+    LevelDemoScene();
+    ~LevelDemoScene() override = default;
 
     void init() override;
     void update(float dt) override;

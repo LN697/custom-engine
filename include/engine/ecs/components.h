@@ -27,4 +27,20 @@ struct MeshComponent {
 struct AxesComponent {};
 struct GridComponent {};
 
+struct DoorComponent {
+    bool open = false;
+    // simple axis (0 = x, 1 = y, 2 = z) for animation/opening
+    int axis = 1;
+};
+
+struct WindowComponent {
+    bool breakable = false;
+};
+
+struct PlatformComponent {
+    bool moving = false;
+    // basic platform velocity
+    glm::vec3 velocity = glm::vec3(0.0f);
+};
+
 } // namespace engine::ecs

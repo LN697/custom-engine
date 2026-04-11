@@ -1,19 +1,21 @@
 #pragma once
 
 #include "engine/scene/scene.h"
-#include <time.h>
+#include "engine/text_renderer.h"
+#include "engine/camera/camera2d.h"
+#include "engine/scene/terraria_world.h"
+#include "engine/scene/player.h"
 #include <memory>
 
 namespace engine {
-class TextRenderer;
 namespace ecs { class Registry; }
 namespace graphics { class ShaderProgram; }
 namespace scene {
 
-class BlockWorldScene : public Scene {
+class TwoDScene : public Scene {
 public:
-    BlockWorldScene();
-    ~BlockWorldScene() override = default;
+    TwoDScene();
+    ~TwoDScene() override = default;
 
     void init() override;
     void update(float dt) override;
@@ -23,6 +25,9 @@ private:
     std::shared_ptr<engine::ecs::Registry> registry_;
     std::shared_ptr<engine::graphics::ShaderProgram> shader_;
     std::unique_ptr<engine::TextRenderer> text_renderer_;
+    std::unique_ptr<engine::Camera2D> camera2d_;
+    std::unique_ptr<TerrariaWorld> world_;
+    std::unique_ptr<Player> player_;
 };
 
 } // namespace scene
